@@ -1042,3 +1042,10 @@ else:
 **2026-03-31 演示表：`Preprocessor transform failed: columns are missing`**
 - **原因**：`data/sample_data.csv` 缺 **adlab_c, fall_down, pension, wspeed, ins, iadl, retire, disability**，冠军 Pipeline 的 ColumnTransformer 要求列名齐全。
 - **修正**：`utils/charls_script_data_loader.py` 在读取演示 CSV 后 **`_pad_bundled_demo_columns`** 补列（二分类/计数默认 0，**wspeed** 演示占位 **1.0**）；**需重新 push** 后 Streamlit 拉代码生效。
+
+**Mistake: SHAP / XGBoost `could not convert string to float: '[1.4061464E-1]'`（仅对部分列做清洗）**
+**Wrong**:
+- `_coerce_float_matrix_for_shap` 在 **`is_numeric_dtype`** 为真时直接 **`pd.to_numeric(ser)`**，不剥离 **`[...]`**；若列被标成 numeric 但单元格仍是带括号的字符串，或 object 列被误判分支遗漏，仍会报错。
+**Correct**:
+- **每一列**先 **`astype(str)`**，循环剥离外层 **`^\[(.*)\]$`**（最多 4 次防嵌套），再 **`pd.to_numeric(..., errors="coerce")`**，**`np.nan_to_num`** 写入 **`float64` ndarray**，重建 **`DataFrame`**；在 **`_build_explainer`** 入口对 **`X_bg`** 再调用一次 **`_coerce_float_matrix_for_shap`** 作兜底。
+- **参考**：`streamlit_shap_three_cohorts.py` 中 **`_coerce_float_matrix_for_shap`**、**`_build_explainer`**。
