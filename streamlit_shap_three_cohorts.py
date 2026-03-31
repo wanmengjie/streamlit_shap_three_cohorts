@@ -772,6 +772,51 @@ def _clean_shap_columns(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def _coerce_float_matrix_for_shap(X: pd.DataFrame) -> pd.DataFrame:
+    """
+    SHAP / XGBoost expect a strict float matrix. On Streamlit Cloud, pipeline output can
+    occasionally leave object columns or stringified scalars like ``'[1.406E-1]'`` (bracketed
+    scientific notation), which raises ``could not convert string to float``.
+    """
+    if X.empty:
+        return X
+    blocks: dict[str, pd.Series] = {}
+    for c in X.columns:
+        ser = X[c]
+        if pd.api.types.is_numeric_dtype(ser.dtype) and not pd.api.types.is_object_dtype(ser.dtype):
+            blocks[c] = pd.to_numeric(ser, errors="coerce")
+        else:
+            s = ser.astype(str).str.strip().str.replace(r"^\[(.*)\]$", r"\1", regex=True)
+            blocks[c] = pd.to_numeric(s, errors="coerce")
+    out = pd.DataFrame(blocks, index=X.index)
+    return out.fillna(0.0).astype(np.float64)
+
+
+def _float_vec_from_cache(raw) -> np.ndarray:
+    """Parse SHAP vector from session cache (handles object / bracketed string elements)."""
+    flat = np.asarray(raw).ravel()
+    if flat.size == 0:
+        return flat.astype(np.float64)
+    if flat.dtype != object:
+        return np.nan_to_num(
+            np.asarray(flat, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0
+        )
+    out: list[float] = []
+    for x in flat.tolist():
+        if isinstance(x, (int, float, np.integer, np.floating)) and not isinstance(x, bool):
+            out.append(float(x))
+            continue
+        s = str(x).strip()
+        if s.startswith("[") and s.endswith("]"):
+            inner = s[1:-1].strip().split()
+            s = inner[0] if inner else ""
+        try:
+            out.append(float(s))
+        except ValueError:
+            out.append(0.0)
+    return np.nan_to_num(np.asarray(out, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0)
+
+
 def _build_explainer(actual_model, X_bg: pd.DataFrame):
     model_str = str(type(actual_model))
     if any(
@@ -1316,6 +1361,7 @@ def render_cohort_tab(meta: dict):
         st.error(t("err_transform", e))
         return
     X_bg = _clean_shap_columns(X_bg_full)
+    X_bg = _coerce_float_matrix_for_shap(X_bg)
     if len(X_bg) > 600:
         X_bg = X_bg.sample(n=600, random_state=RANDOM_SEED)
 
@@ -1442,6 +1488,7 @@ def render_cohort_tab(meta: dict):
                 return
             X_one_t = transform(row_X)
             X_one = _clean_shap_columns(X_one_t)
+            X_one = _coerce_float_matrix_for_shap(X_one)
             try:
                 if kind == "kernel":
                     sv = _shap_values_for_class1(explainer, kind, X_one, nsamples=60)
@@ -1501,7 +1548,7 @@ def render_cohort_tab(meta: dict):
         st.warning(t("stale_inputs_warn"))
 
     proba = float(cache["proba"])
-    vec = np.nan_to_num(np.asarray(cache["vec"], dtype=np.float64).ravel(), nan=0.0, posinf=0.0, neginf=0.0)
+    vec = _float_vec_from_cache(cache["vec"])
     names = list(cache["names"])
     if len(vec) != len(names):
         m = min(len(vec), len(names))
