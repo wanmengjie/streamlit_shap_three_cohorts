@@ -45,6 +45,7 @@ from config import (
     COHORT_STEP_DIRS,
     IMPUTED_DATA_PATH,
     RANDOM_SEED,
+    RESULTS_MODELS,
     TARGET_COL,
     USE_IMPUTED_DATA,
 )
@@ -163,7 +164,7 @@ Matches the manuscript’s **three incident-eligible baseline phenotype cohorts*
     "cohort_caption_n": "｜ Table 1 ref. N ≈ {}",
     "cohort_ref_n_only": "Table 1 reference N ≈ {}",
     "err_no_shap": "Install shap: `pip install shap`",
-    "err_no_model": "Champion model not found:\n`{}`\nRun the cohort prediction step first.",
+    "err_no_model": "Champion model not found. Checked:\n{}\n\n**Common cause (Streamlit Cloud):** the server only has what you **pushed to GitHub**. Train locally (`run_all_charls_analyses` or `scripts/run_cpm_table2_only.py`), then commit **`…/01_prediction/champion_model.joblib`** for each cohort, **or** **`results/models/champion_cohortA.joblib`** (and B/C). Large `.joblib` files may need [Git LFS](https://git-lfs.com/).",
     "err_no_data": "Cannot load analysis data (same as training via `load_df_for_analysis`) or missing `baseline_group`:\n`{}`",
     "err_load_analysis": "Failed to load analysis data: {}",
     "err_empty_x": "Numeric feature matrix is empty.",
@@ -1381,6 +1382,27 @@ def _recommendations_markdown(proba: float) -> str:
     return "\n".join(lines)
 
 
+def _resolve_champion_model_path(root: str, meta: dict) -> tuple[str | None, list[str]]:
+    """
+    Primary: Cohort_*/01_prediction/champion_model.joblib (matches run_all_charls_analyses).
+    Fallback: results/models/champion_cohort{key}.joblib then champion_axis{key}.joblib
+    (consolidate step copies the same file — useful when only results/models is committed).
+    """
+    cid = str(meta.get("key", "A")).strip().upper()[:1]
+    pred = os.path.join(root, meta["dir"], COHORT_STEP_DIRS["prediction"], "champion_model.joblib")
+    candidates = [
+        pred,
+        os.path.join(root, RESULTS_MODELS, f"champion_cohort{cid}.joblib"),
+        os.path.join(root, RESULTS_MODELS, f"champion_axis{cid}.joblib"),
+    ]
+    tried: list[str] = []
+    for p in candidates:
+        tried.append(p)
+        if os.path.isfile(p):
+            return p, tried
+    return None, tried
+
+
 @st.cache_resource
 def _load_champion_model(model_path: str, _mtime: float):
     if not os.path.isfile(model_path):
@@ -1453,17 +1475,21 @@ def render_cohort_tab(meta: dict):
     key = meta["key"]
     accent = meta.get("accent", "#8f9188")
     root = _project_root()
-    pred_dir = os.path.join(root, meta["dir"], COHORT_STEP_DIRS["prediction"])
-    model_path = os.path.join(pred_dir, "champion_model.joblib")
 
     if shap is None:
         st.error(t("err_no_shap"))
         return
 
-    mtime = os.path.getmtime(model_path) if os.path.isfile(model_path) else 0.0
+    model_path, _tried = _resolve_champion_model_path(root, meta)
+    if not model_path:
+        checked = "\n".join(f"- `{p}`" for p in _tried)
+        st.error(t("err_no_model", checked))
+        return
+    mtime = os.path.getmtime(model_path)
     model = _load_champion_model(model_path, mtime)
     if model is None:
-        st.error(t("err_no_model", model_path))
+        checked = "\n".join(f"- `{p}`" for p in _tried)
+        st.error(t("err_no_model", checked))
         return
 
     load_res = _load_cohort_subsample(_analysis_data_fingerprint(), meta["baseline"])
