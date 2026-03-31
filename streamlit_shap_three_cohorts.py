@@ -85,7 +85,6 @@ STRINGS: dict[str, str] = {
     "btn_run_predict": "Run prediction",
     "btn_start_assessment": "Start assessment",
     "sidebar_clinical_params": "Clinical assessment parameters",
-    "sidebar_clinical_hint": "**Numeric**: continuous variables (sliders). **Age** and **family_size** use whole numbers only. **Sex (`gender`)**: **0 = female**, **1 = male**. **Categorical & binary**: Table 1–aligned levels in this subsample. Values stay within subsample min–max / observed levels.",
     "sidebar_section_numeric": "Numeric (continuous)",
     "sidebar_section_categorical": "Categorical & binary",
     "section_assessment_result": "Assessment result",
@@ -1515,7 +1514,6 @@ def render_cohort_tab(meta: dict):
         f'<p class="sb-group-hdr">{html_module.escape(t("sidebar_clinical_params"))}</p>',
         unsafe_allow_html=True,
     )
-    st.sidebar.markdown(t("sidebar_clinical_hint"))
 
     cols_list = list(X_all.columns)
     display_order, _ = order_columns_for_editor(cols_list)
