@@ -13,9 +13,19 @@ LIU_JUE_STRATEGIC_SUMMARY/
 Axis_A_Healthy_Prospective/
 Axis_B_Depression_to_Comorbidity/
 Axis_C_Cognition_to_Comorbidity/
-Cohort_A_Healthy_Prospective/
-Cohort_B_Depression_to_Comorbidity/
-Cohort_C_Cognition_to_Comorbidity/
+# 三队列目录：默认全忽略，但 **保留** Streamlit 需要的冠军模型（需本地有文件后再 git add）
+Cohort_A_Healthy_Prospective/*
+!Cohort_A_Healthy_Prospective/01_prediction/
+Cohort_A_Healthy_Prospective/01_prediction/*
+!Cohort_A_Healthy_Prospective/01_prediction/champion_model.joblib
+Cohort_B_Depression_to_Comorbidity/*
+!Cohort_B_Depression_to_Comorbidity/01_prediction/
+Cohort_B_Depression_to_Comorbidity/01_prediction/*
+!Cohort_B_Depression_to_Comorbidity/01_prediction/champion_model.joblib
+Cohort_C_Cognition_to_Comorbidity/*
+!Cohort_C_Cognition_to_Comorbidity/01_prediction/
+Cohort_C_Cognition_to_Comorbidity/01_prediction/*
+!Cohort_C_Cognition_to_Comorbidity/01_prediction/champion_model.joblib
 # 本地可复现快照（含 pip freeze，体积可能较大；需纳入版本库可删除本行）
 runs/repro_snapshots/
 # results/  # 可选：保留 results/ 以展示示例输出

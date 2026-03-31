@@ -9,14 +9,27 @@ GitHub 推送（需在本机完成，需你登录 GitHub）
 - 已跟踪运行 Streamlit 所需的核心代码：streamlit_shap_three_cohorts.py、config.py、
   requirements.txt、.gitignore、data/、utils/
 
-尚未纳入仓库（Streamlit Cloud 会报错，除非你从别处提供数据）
+冠军模型（已改 .gitignore：仅允许 3 个 joblib 进仓库）
 ------------------------------------------------------------------
-- 三队列 champion_model.joblib（路径见 .gitignore，默认被忽略）
-- imputation_npj_results/.../step1_imputed_full.csv（若 config 使用该路径）
+本地须先存在（跑过各队列 prediction 步骤后）：
+  Cohort_A_Healthy_Prospective/01_prediction/champion_model.joblib
+  Cohort_B_Depression_to_Comorbidity/01_prediction/champion_model.joblib
+  Cohort_C_Cognition_to_Comorbidity/01_prediction/champion_model.joblib
 
-若要云端可跑，请任选其一：
-  A) 修改 .gitignore，允许上述路径后 git add + commit
-  B) 使用 Git LFS：git lfs track "*.joblib" 与大 CSV，再 add/commit
+提交并推送：
+  git add .gitignore
+  git add Cohort_A_Healthy_Prospective/01_prediction/champion_model.joblib
+  git add Cohort_B_Depression_to_Comorbidity/01_prediction/champion_model.joblib
+  git add Cohort_C_Cognition_to_Comorbidity/01_prediction/champion_model.joblib
+  git commit -m "Add champion_model.joblib for Streamlit Cloud"
+  git push
+
+若单个 joblib >100MB：用 Git LFS（git lfs track "*.joblib"）后再 add/commit。
+
+分析数据（load_df_for_analysis）
+------------------------------------------------------------------
+仍可能缺 imputation_npj_results/.../step1_imputed_full.csv；若该 CSV >100MB 勿直接 push，
+需缩小样本、换路径或启动时从网盘下载。
 
 --------------------------------------------------------------------
 第一步：在 github.com 新建空仓库（不要初始化 README 也可）
