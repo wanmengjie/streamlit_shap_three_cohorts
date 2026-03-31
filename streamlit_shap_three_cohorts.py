@@ -25,6 +25,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import streamlit as st
+from scipy import sparse as sp_sparse
 
 _ROOT = os.path.dirname(os.path.abspath(__file__))
 if _ROOT not in sys.path:
@@ -734,6 +735,19 @@ def _project_root() -> str:
     return _ROOT
 
 
+def _preprocessor_transform_to_df(preprocessor, X_num: pd.DataFrame) -> pd.DataFrame:
+    """Dense float-friendly frame: sparse matrices → dense; avoids object/str cells in SHAP/XGB."""
+    arr = preprocessor.transform(X_num)
+    if sp_sparse.issparse(arr):
+        arr = arr.toarray()
+    arr = np.asarray(arr)
+    try:
+        names = preprocessor.get_feature_names_out()
+        return pd.DataFrame(arr, columns=names, index=X_num.index)
+    except Exception:
+        return pd.DataFrame(arr, index=X_num.index)
+
+
 def _unpack_for_shap(model):
     actual_model = model
     if hasattr(model, "estimator") and hasattr(model.estimator, "named_steps"):
@@ -742,12 +756,7 @@ def _unpack_for_shap(model):
         preprocessor = pipe.named_steps["preprocessor"]
 
         def transform(X_num: pd.DataFrame) -> pd.DataFrame:
-            arr = preprocessor.transform(X_num)
-            try:
-                names = preprocessor.get_feature_names_out()
-                return pd.DataFrame(arr, columns=names, index=X_num.index)
-            except Exception:
-                return pd.DataFrame(arr, index=X_num.index)
+            return _preprocessor_transform_to_df(preprocessor, X_num)
 
         return actual_model, transform
     if hasattr(model, "named_steps") and "clf" in model.named_steps:
@@ -755,12 +764,7 @@ def _unpack_for_shap(model):
         preprocessor = model.named_steps["preprocessor"]
 
         def transform(X_num: pd.DataFrame) -> pd.DataFrame:
-            arr = preprocessor.transform(X_num)
-            try:
-                names = preprocessor.get_feature_names_out()
-                return pd.DataFrame(arr, columns=names, index=X_num.index)
-            except Exception:
-                return pd.DataFrame(arr, index=X_num.index)
+            return _preprocessor_transform_to_df(preprocessor, X_num)
 
         return actual_model, transform
     return actual_model, lambda x: x
@@ -772,25 +776,52 @@ def _clean_shap_columns(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def _coerce_scalar_for_shap(x) -> float:
+    """Parse one cell for SHAP / XGBoost (handles numpy scalars, bracketed str repr, fullwidth brackets)."""
+    if isinstance(x, (int, float, np.integer, np.floating)) and not isinstance(x, bool):
+        v = float(x)
+        return float(np.nan_to_num(v, nan=0.0, posinf=0.0, neginf=0.0))
+    s = str(x).strip()
+    pairs = (("[", "]"), ("［", "］"), ("【", "】"), ("〔", "〕"))
+    for _ in range(8):
+        if len(s) < 2:
+            break
+        stripped = False
+        for a, b in pairs:
+            if s.startswith(a) and s.endswith(b):
+                s = s[1:-1].strip()
+                stripped = True
+                break
+        if not stripped:
+            break
+    v = pd.to_numeric(s, errors="coerce")
+    if pd.isna(v):
+        return 0.0
+    v = float(v)
+    if not np.isfinite(v):
+        return 0.0
+    return float(np.nan_to_num(v, nan=0.0, posinf=0.0, neginf=0.0))
+
+
 def _coerce_float_matrix_for_shap(X: pd.DataFrame) -> pd.DataFrame:
     """
-    SHAP / XGBoost expect a strict float matrix. On Streamlit Cloud, pipeline output can
-    leave stringified scalars like ``'[1.406E-1]'`` (bracketed scientific notation).
-
-    We always stringify then strip brackets (repeat in case of nested ``[[...]]``) so we
-    never skip cleanup when pandas reports a column as numeric yet cells are still strings.
+    SHAP / XGBoost expect a strict float matrix. Cloud / sklearn can leave object cells or
+    stringified scalars like ``'[1.406E-1]'`` (bracketed scientific notation).
     """
     if X.empty:
         return X
     n, m = int(X.shape[0]), int(X.shape[1])
     arr = np.empty((n, m), dtype=np.float64)
-    for j, c in enumerate(X.columns):
-        s = X.iloc[:, j].astype(str).str.strip()
-        for _ in range(4):
-            s = s.str.replace(r"^\[(.*)\]$", r"\1", regex=True)
-        col = pd.to_numeric(s, errors="coerce").to_numpy(dtype=np.float64, copy=False)
-        arr[:, j] = np.nan_to_num(col, nan=0.0, posinf=0.0, neginf=0.0)
+    for j in range(m):
+        col = X.iloc[:, j].map(_coerce_scalar_for_shap)
+        arr[:, j] = col.to_numpy(dtype=np.float64, copy=False)
     return pd.DataFrame(arr, columns=list(X.columns), index=X.index)
+
+
+def _shap_feature_matrix_np(X: pd.DataFrame) -> np.ndarray:
+    """Contiguous float64 ndarray for shap.TreeExplainer / shap_values (avoids object dtypes in C libs)."""
+    Xdf = _coerce_float_matrix_for_shap(X)
+    return np.ascontiguousarray(Xdf.to_numpy(dtype=np.float64, copy=True))
 
 
 def _float_vec_from_cache(raw) -> np.ndarray:
@@ -819,7 +850,7 @@ def _float_vec_from_cache(raw) -> np.ndarray:
 
 
 def _build_explainer(actual_model, X_bg: pd.DataFrame):
-    X_bg = _coerce_float_matrix_for_shap(X_bg)
+    X_np = _shap_feature_matrix_np(X_bg)
     model_str = str(type(actual_model))
     if any(
         m in model_str
@@ -837,11 +868,12 @@ def _build_explainer(actual_model, X_bg: pd.DataFrame):
     ):
         # Default TreeExplainer output is often **margin (logit)**, not predict_proba.
         # That breaks the force plot (x-axis is probability) and can confuse the UI.
+        # Pass ndarray so XGBoost/SHAP never see object-typed DataFrame columns.
         _tries = (
-            lambda: shap.TreeExplainer(actual_model, X_bg, model_output="probability"),
-            lambda: shap.TreeExplainer(actual_model, data=X_bg, model_output="probability"),
-            lambda: shap.TreeExplainer(actual_model, X_bg),
-            lambda: shap.TreeExplainer(actual_model, data=X_bg),
+            lambda: shap.TreeExplainer(actual_model, X_np, model_output="probability"),
+            lambda: shap.TreeExplainer(actual_model, data=X_np, model_output="probability"),
+            lambda: shap.TreeExplainer(actual_model, X_np),
+            lambda: shap.TreeExplainer(actual_model, data=X_np),
         )
         last_err: Exception | None = None
         for mk in _tries:
@@ -853,18 +885,19 @@ def _build_explainer(actual_model, X_bg: pd.DataFrame):
         if last_err is not None:
             raise last_err
     if "LogisticRegression" in model_str:
-        explainer = shap.LinearExplainer(actual_model, X_bg)
+        explainer = shap.LinearExplainer(actual_model, X_np)
         return explainer, "linear"
-    bg = shap.sample(X_bg, min(80, len(X_bg)))
+    bg = shap.sample(X_np, min(80, int(X_np.shape[0])))
     explainer = shap.KernelExplainer(actual_model.predict_proba, bg)
     return explainer, "kernel"
 
 
 def _shap_values_for_class1(explainer, kind: str, X_shap: pd.DataFrame, nsamples: int = 80):
+    X_arr = _shap_feature_matrix_np(X_shap)
     if kind == "kernel":
-        raw = explainer.shap_values(X_shap, nsamples=nsamples)
+        raw = explainer.shap_values(X_arr, nsamples=nsamples)
     else:
-        raw = explainer.shap_values(X_shap)
+        raw = explainer.shap_values(X_arr)
     if isinstance(raw, list):
         arr = raw[1] if len(raw) > 1 else raw[0]
     else:
