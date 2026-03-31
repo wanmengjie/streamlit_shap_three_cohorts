@@ -1073,7 +1073,28 @@ def _bps_ui_kind(col: str) -> str:
     return "continuous"
 
 
+def _bps_binary_0_1_column(col: str) -> bool:
+    """
+    BPS-listed yes/no or chronic flags are coded 0/1. Subsample or demo CSV may contain
+    only 0; selectbox must still offer 1 so users can set “yes / present”.
+    """
+    c = str(col)
+    for title, sec_cfg in BPS_SECTIONS:
+        if title == "Outcome":
+            continue
+        for key in ("binary", "lifestyle_binary"):
+            for t in sec_cfg.get(key, []) or []:
+                if t and t[0] == c:
+                    return True
+        for t in sec_cfg.get("chronic_disease_cols", []) or []:
+            if t and t[0] == c:
+                return True
+    return False
+
+
 def _discrete_levels(X_all: pd.DataFrame, col: str) -> list[float]:
+    if _bps_binary_0_1_column(col):
+        return [0.0, 1.0]
     s = pd.to_numeric(X_all[col], errors="coerce").dropna()
     if len(s) == 0:
         return [0.0, 1.0]
