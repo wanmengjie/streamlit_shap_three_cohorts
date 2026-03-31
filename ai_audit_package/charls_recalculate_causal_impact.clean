@@ -1,0 +1,103 @@
+# charls_recalculate_causal_impact.py (Original: 130 lines, Cleaned: 102 lines)
+import pandas as pd
+import numpy as np
+import os
+import shutil
+import time
+import logging
+import matplotlib.pyplot as plt
+import seaborn as sns
+from catboost import CatBoostClassifier, CatBoostRegressor
+from econml.dml import CausalForestDML
+from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import StandardScaler
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning, module="joblib")
+warnings.filterwarnings("ignore", category=UserWarning, module="loky")
+from charls_feature_lists import get_exclude_cols, CONTINUOUS_FOR_SCALING
+from config import RANDOM_SEED
+logger = logging.getLogger(__name__)
+def cleanup_temp_cat_dirs():
+    import glob
+    cwd = os.getcwd()
+    removed = 0
+    for d in glob.glob(os.path.join(cwd, 'temp_cat_*')):
+        if os.path.isdir(d):
+            for _ in range(3):
+                try:
+                    shutil.rmtree(d)
+                    removed += 1
+                    break
+                except (OSError, PermissionError) as e:
+                    time.sleep(1)
+            else:
+                logger.debug(f"跳过无法删除: {d}")
+    if removed > 0:
+        logger.info(f"已清理 {removed} 个 CatBoost 临时目录")
+    return removed
+def estimate_causal_impact(df_sub, treatment_col='exercise', output_dir='causal_results'):
+    logger.info(f"\n>>> [因果验证] 正在针对干预变量 [{treatment_col}] 进行因果归因 (n={len(df_sub)})...")
+    os.makedirs(output_dir, exist_ok=True)
+    Y = 'is_comorbidity_next'
+    T = treatment_col
+    if T not in df_sub.columns:
+        logger.warning(f"⚠️ 处理变量 {T} 不在数据集中，跳过因果分析。")
+        return None, (0, 0, 0)
+    exclude_cols = get_exclude_cols(df_sub, target_col=Y, treatment_col=T)
+    W_cols = [c for c in df_sub.columns if c not in exclude_cols]
+    X_raw = df_sub[W_cols].select_dtypes(include=[np.number])
+    if X_raw.shape[1] == 0 or len(X_raw) < 10:
+        logger.warning(f"⚠️ 有效特征数为 0 或样本过少 (n={len(X_raw)})，跳过因果分析。")
+        return None, (0, 0, 0)
+    if 'communityID' in df_sub.columns:
+        cluster_ids = df_sub['communityID'].fillna(df_sub['ID']).astype(str)
+    else:
+        cluster_ids = df_sub['ID'].astype(str)
+    imputer = SimpleImputer(strategy='median')
+    X_filled = pd.DataFrame(imputer.fit_transform(X_raw), columns=X_raw.columns)
+    scale_cols = [c for c in X_filled.columns if c in CONTINUOUS_FOR_SCALING]
+    if scale_cols:
+        X_scaled = X_filled.copy()
+        X_scaled[scale_cols] = StandardScaler().fit_transform(X_filled[scale_cols])
+    else:
+        X_scaled = X_filled
+    T_series = df_sub[T].fillna(0).astype(int) # 确保干预变量是 0/1
+    Y_series = df_sub[Y].astype(float)
+    import uuid
+    unique_id = uuid.uuid4().hex[:8]
+    train_dir_y = f'temp_cat_y_{T}_{unique_id}'
+    train_dir_t = f'temp_cat_t_{T}_{unique_id}'
+    dml = CausalForestDML(
+        model_y=CatBoostRegressor(n_estimators=200, depth=4, verbose=0, random_state=RANDOM_SEED, train_dir=train_dir_y),
+        model_t=CatBoostClassifier(n_estimators=200, depth=4, verbose=0, random_state=RANDOM_SEED, train_dir=train_dir_t),
+        discrete_treatment=True, cv=5, n_estimators=1000, random_state=RANDOM_SEED,
+        honest=True  # 审稿修正：诚实估计，生长与叶节点估计用不同子样本，减少过拟合
+    )
+    try:
+        dml.fit(Y=Y_series, T=T_series, X=X_scaled, groups=cluster_ids)
+        ite = dml.effect(X_scaled)
+        ate = ite.mean()
+        ate_lb, ate_ub = dml.ate_interval(X_scaled)
+        ate_lb_90, ate_ub_90 = dml.ate_interval(X_scaled, alpha=0.10)
+        logger.info(f"🏆 干预 [{T}] 的平均因果效应 (ATE): {ate:.4f} (95% CI: {ate_lb:.4f}, {ate_ub:.4f})")
+        logger.info(f"   探索性 90% CI: ({ate_lb_90:.4f}, {ate_ub_90:.4f})")
+        df_sub[f'causal_impact_{T}'] = ite
+        out_file = os.path.join(output_dir, f'CAUSAL_ANALYSIS_{T}.csv')
+        df_sub.to_csv(out_file, index=False, encoding='utf-8-sig')
+        with open(os.path.join(output_dir, f'ATE_CI_summary_{T}.txt'), 'w', encoding='utf-8') as f:
+            f.write(f"Treatment: {T}\n")
+            f.write(f"ATE (point estimate): {ate:.4f}\n")
+            f.write(f"95% CI: ({ate_lb:.4f}, {ate_ub:.4f})\n")
+            f.write(f"90% CI: ({ate_lb_90:.4f}, {ate_ub_90:.4f})\n")
+            f.write(f"N: {len(df_sub)}\n")
+        return df_sub, (ate, ate_lb, ate_ub)
+    except Exception as e:
+        logger.error(f"因果引擎失败: {e}")
+        return None, (0, 0, 0)
+    finally:
+        for d in [train_dir_y, train_dir_t]:
+            if os.path.exists(d):
+                try:
+                    shutil.rmtree(d)
+                except OSError as err:
+                    logger.debug(f"清理临时目录 {d} 失败: {err}")

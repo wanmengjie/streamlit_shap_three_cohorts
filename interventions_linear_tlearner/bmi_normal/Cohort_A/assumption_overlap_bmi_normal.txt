@@ -1,0 +1,6 @@
+=== 正性/重叠假设检验 (Positivity/Overlap) ===
+Treatment: bmi_normal
+N: 8828, T=1: 1089, T=0: 7739
+PS range: [0.0000, 0.9728]
+Samples with PS outside [0.05,0.95]: 6232 (70.6%)
+Interpretation: <10% excluded suggests adequate overlap.

@@ -1,0 +1,5 @@
+=== TLearner 因果推断假设检验汇总 ===
+
+Overlap: 0.16% PS outside [0.05,0.95]; OK=True
+Balance: max|SMD|=1.3988; imbalanced vars=21
+E-Value: point=1.7; conservative=1.15

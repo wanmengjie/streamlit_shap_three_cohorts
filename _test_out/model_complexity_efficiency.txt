@@ -1,0 +1,5 @@
+Champion Model: LR
+n_features: 3
+features: age, gender, bmi
+prediction_time_per_100_samples_ms: 0.25
+hyperparams: see model object

@@ -1,0 +1,7 @@
+﻿cohort,method,ate,ate_lb,ate_ub,ci_includes_null
+A,PSM,-0.01,-0.0302,0.0101,Yes
+A,PSW,0.0004,-0.0175,0.0184,Yes
+B,PSM,0.0055,-0.0331,0.0441,Yes
+B,PSW,-0.016,-0.051,0.0191,Yes
+C,PSM,0.0107,-0.0316,0.0529,Yes
+C,PSW,0.0142,-0.0229,0.0514,Yes

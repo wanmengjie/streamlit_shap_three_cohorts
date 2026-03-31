@@ -1,0 +1,52 @@
+# eval_single_model_mvp.py (Original: 77 lines, Cleaned: 51 lines)
+# -*- coding: utf-8 -*-
+import numpy as np
+from sklearn.metrics import roc_curve, roc_auc_score, recall_score, brier_score_loss, confusion_matrix
+def eval_single(model, X_test, y_test):
+    estimator = model.best_estimator_ if hasattr(model, "best_estimator_") else model
+    best_params = getattr(model, "best_params_", None)
+    best_score = getattr(model, "best_score_", None)
+    y_prob = estimator.predict_proba(X_test)
+    y_prob = np.asarray(y_prob)
+    if y_prob.ndim == 2:
+        y_prob = y_prob[:, 1] if y_prob.shape[1] == 2 else y_prob[:, 0]
+    y_true = np.asarray(y_test).astype(int)
+    fpr, tpr, thresholds = roc_curve(y_true, y_prob)
+    youden = tpr - fpr
+    idx = np.argmax(youden)
+    opt_thresh = float(thresholds[idx])
+    y_pred = (y_prob >= opt_thresh).astype(int)
+    auc_val = roc_auc_score(y_true, y_prob)
+    recall_val = recall_score(y_true, y_pred, zero_division=0)
+    brier_val = brier_score_loss(y_true, y_prob)
+    cm = confusion_matrix(y_true, y_pred)
+    if cm.shape == (2, 2):
+        tn, fp, fn, tp = cm.ravel()
+        specificity_val = tn / (tn + fp) if (tn + fp) > 0 else 0.0
+    else:
+        specificity_val = 0.0 if (y_true == 1).any() else 1.0
+    print("=" * 50)
+    print("核心指标")
+    print("=" * 50)
+    print(f"AUC:          {auc_val:.4f}")
+    print(f"Recall:       {recall_val:.4f}")
+    print(f"Specificity:  {specificity_val:.4f}")
+    print(f"Brier Score:  {brier_val:.4f}")
+    print(f"最优阈值:     {opt_thresh:.4f}")
+    print()
+    print("调优信息")
+    print("-" * 50)
+    print(f"best_score_:  {best_score}")
+    print(f"best_params_: {best_params}")
+    print("=" * 50)
+if __name__ == "__main__":
+    from sklearn.ensemble import RandomForestClassifier
+    from sklearn.model_selection import RandomizedSearchCV
+    from sklearn.datasets import make_classification
+    X, y = make_classification(n_samples=500, n_features=10, random_state=42)
+    X_train, X_test = X[:400], X[400:]
+    y_train, y_test = y[:400], y[400:]
+    rf = RandomForestClassifier(random_state=42)
+    search = RandomizedSearchCV(rf, {"n_estimators": [50, 100]}, n_iter=2, cv=2, random_state=42)
+    search.fit(X_train, y_train)
+    eval_single(search, X_test, y_test)

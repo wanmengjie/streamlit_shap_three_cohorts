@@ -1,0 +1,31 @@
+# run_final_completion.py (Original: 50 lines, Cleaned: 30 lines)
+import sys
+import os
+import pandas as pd
+import numpy as np
+import logging
+import matplotlib.pyplot as plt
+import seaborn as sns
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+sys.path.append(os.getcwd())
+try:
+    from charls_visual_enhancement import run_visual_enhancement
+    from charls_methodology_audit import run_methodology_audit, run_ablation_study
+    data_path = 'preprocessed_data/CHARLS_final_preprocessed.csv'
+    if not os.path.exists(data_path):
+        data_path = os.path.join('preprocessed_data', 'CHARLS_final_preprocessed.csv')
+    if not os.path.exists(data_path):
+        raise FileNotFoundError(f'找不到预处理数据文件: {data_path}')
+    df_clean = pd.read_csv(data_path)
+    logger.info(f'✅ 数据加载成功: {df_clean.shape}')
+    logger.info('>>> 正在生成最终发表级图表 (final_publication_plots)...')
+    run_visual_enhancement(df_clean, output_dir='final_publication_plots')
+    logger.info('>>> 正在执行特征共识审计 (evaluation_results/methodology_audit)...')
+    consensus_results = run_methodology_audit(df_clean.copy(), output_dir='evaluation_results/methodology_audit')
+    if consensus_results:
+        logger.info('>>> 正在执行消融实验 (evaluation_results/ablation_study)...')
+        run_ablation_study(df_clean.copy(), consensus_results, output_dir='evaluation_results/ablation_study')
+    logger.info('🎉 所有收尾任务圆满完成！')
+except Exception as e:
+    logger.error(f'💥 运行失败: {e}', exc_info=True)

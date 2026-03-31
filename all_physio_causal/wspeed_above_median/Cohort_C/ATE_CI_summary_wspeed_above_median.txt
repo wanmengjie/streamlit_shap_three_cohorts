@@ -1,0 +1,9 @@
+Treatment: wspeed_above_median
+ATE (point estimate): 0.0202
+95% CI: (-0.4143, 0.4546)
+90% CI: (-0.3445, 0.3848)
+N: 2435
+Overlap trimming (PS not in [0.05,0.95]): 1272 excluded (52.2%)
+E-Value (point): 1.46
+E-Value (conservative, from 95%% CI): 0.40
+  (Unmeasured confounder would need RR≥E with both T and Y to explain away the effect)

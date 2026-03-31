@@ -1,0 +1,209 @@
+# run_sensitivity_scenarios.py (Original: 254 lines, Cleaned: 208 lines)
+# -*- coding: utf-8 -*-
+import os
+import sys
+import random
+import logging
+import pandas as pd
+import numpy as np
+from config import *  # 加载字体配置，解决方框显示
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler()]
+)
+logger = logging.getLogger(__name__)
+from charls_complete_preprocessing import preprocess_charls_data, reapply_cohort_definition
+from charls_recalculate_causal_impact import estimate_causal_impact, cleanup_temp_cat_dirs
+from sklearn.model_selection import GroupShuffleSplit
+INTERVENTIONS = [
+    ('exercise', '运动'),
+    ('sleep_adequate', '充足睡眠'),
+    ('smokev', '吸烟'),
+    ('drinkev', '饮酒'),
+    ('is_socially_isolated', '社会隔离'),
+    ('bmi_normal', 'BMI正常'),
+    ('chronic_low', '慢性病负担低'),
+]
+def _get_train_subset(df, random_state=None):
+    from config import RANDOM_SEED
+    if random_state is None:
+        random_state = RANDOM_SEED
+    if df is None or len(df) < 50 or 'ID' not in df.columns:
+        return df
+    gss = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=random_state)
+    train_idx, _ = next(gss.split(df, df['is_comorbidity_next'] if 'is_comorbidity_next' in df.columns else df.index, groups=df['ID']))
+    return df.iloc[train_idx].copy()
+def prepare_interventions(df):
+    if 'sleep' in df.columns and 'sleep_adequate' not in df.columns:
+        sleep_val = df['sleep'].clip(0, 24)
+        df['sleep_adequate'] = (sleep_val >= 6).astype(int)
+        df.loc[sleep_val.isna(), 'sleep_adequate'] = np.nan
+    if 'bmi' in df.columns and 'bmi_normal' not in df.columns:
+        bmi_val = df['bmi'].clip(10, 50)
+        df['bmi_normal'] = ((bmi_val >= 18.5) & (bmi_val <= 24)).astype(int)
+        df.loc[df['bmi'].isna(), 'bmi_normal'] = np.nan
+    if 'chronic_burden' in df.columns and 'chronic_low' not in df.columns:
+        df['chronic_low'] = (df['chronic_burden'].fillna(0) <= 1).astype(int)
+    return df
+def run_one_scenario(df_clean, scenario_name, axis_label, axis_name, treatment_col='exercise', treatment_label='运动', restrict_complete_case=False):
+    if axis_label == 'A':
+        df_sub = df_clean[df_clean['baseline_group'] == 0].copy()
+    elif axis_label == 'B':
+        df_sub = df_clean[df_clean['baseline_group'] == 1].copy()
+    else:
+        df_sub = df_clean[df_clean['baseline_group'] == 2].copy()
+    if treatment_col not in df_sub.columns:
+        return {'intervention': treatment_col, 'intervention_label': treatment_label, 'scenario': scenario_name, 'axis': axis_label, 'axis_name': axis_name, 'n': 0,
+                'incidence': np.nan, 'ate': np.nan, 'ate_lb': np.nan, 'ate_ub': np.nan}
+    if restrict_complete_case:
+        df_sub = df_sub.dropna(subset=[treatment_col])
+    n = len(df_sub)
+    if n < 30:
+        return {'intervention': treatment_col, 'intervention_label': treatment_label, 'scenario': scenario_name, 'axis': axis_label, 'axis_name': axis_name, 'n': n,
+                'incidence': np.nan, 'ate': np.nan, 'ate_lb': np.nan, 'ate_ub': np.nan}
+    inc = df_sub['is_comorbidity_next'].mean()
+    out_dir = os.path.join('sensitivity_temp', scenario_name.replace(' ', '_'), treatment_col, f'Axis_{axis_label}')
+    os.makedirs(out_dir, exist_ok=True)
+    res_df, (ate, ate_lb, ate_ub) = estimate_causal_impact(df_sub, treatment_col=treatment_col, output_dir=out_dir)
+    return {'intervention': treatment_col, 'intervention_label': treatment_label, 'scenario': scenario_name, 'axis': axis_label, 'axis_name': axis_name, 'n': n,
+            'incidence': inc, 'ate': ate, 'ate_lb': ate_lb, 'ate_ub': ate_ub}
+def run_sensitivity_scenarios_analysis(final_dir='LIU_JUE_STRATEGIC_SUMMARY', data_path='CHARLS.csv', interventions=None, df_base=None, train_only=True):
+    if df_base is None and not os.path.exists(data_path):
+        logger.error(f"未找到 {data_path} 且未提供 df_base，跳过敏感性场景。")
+        return None
+    if interventions is None:
+        interventions = INTERVENTIONS
+    elif interventions and isinstance(interventions[0], str):
+        interventions = [(c, c) for c in interventions]
+    elif interventions and not isinstance(interventions[0], tuple):
+        interventions = [(c, c) for c in interventions]
+    from config import RANDOM_SEED, AGE_MIN
+    random.seed(RANDOM_SEED)
+    np.random.seed(RANDOM_SEED)
+    os.makedirs(final_dir, exist_ok=True)
+    cutpoint_scenarios = [
+        (10, 10, 'Main (CES-D≥10, Cog≤10)'),
+        (8,  10, 'CES-D≥8'),
+        (12, 10, 'CES-D≥12'),
+        (10, 8,  'Cog≤8'),
+        (10, 12, 'Cog≤12'),
+        (8,  8,  'CES-D≥8, Cog≤8'),
+        (8,  12, 'CES-D≥8, Cog≤12'),
+        (12, 8,  'CES-D≥12, Cog≤8'),
+        (12, 12, 'CES-D≥12, Cog≤12'),
+    ]
+    rows = []
+    use_imputed_base = df_base is not None and len(df_base) > 0
+    if use_imputed_base:
+        df_base = prepare_interventions(df_base.copy())
+    for cesd_c, cog_c, label in cutpoint_scenarios:
+        logger.info(f"敏感性场景: {label}" + (" (插补后数据)" if use_imputed_base else ""))
+        if use_imputed_base:
+            df_clean = reapply_cohort_definition(df_base, cesd_cutoff=cesd_c, cognition_cutoff=cog_c)
+        else:
+            df_clean = preprocess_charls_data(data_path, cesd_cutoff=cesd_c, cognition_cutoff=cog_c, age_min=AGE_MIN, write_output=False)
+            if df_clean is not None:
+                df_clean = prepare_interventions(df_clean)
+        if df_clean is None or len(df_clean) < 30:
+            continue
+        if train_only and not use_imputed_base:
+            df_clean = _get_train_subset(df_clean)
+            if df_clean is None or len(df_clean) < 30:
+                continue
+            logger.info(f"  使用训练集子集 (n={len(df_clean)})，测试集已隔离")
+        for treatment_col, treatment_label in interventions:
+            if treatment_col not in df_clean.columns:
+                logger.warning(f"  跳过 {treatment_col}：列不存在")
+                continue
+            for axis_label, axis_name in [('A', 'Healthy'), ('B', 'Depression'), ('C', 'Cognition')]:
+                r = run_one_scenario(df_clean, label, axis_label, axis_name, treatment_col=treatment_col, treatment_label=treatment_label, restrict_complete_case=False)
+                rows.append(r)
+    if use_imputed_base:
+        df_main = reapply_cohort_definition(df_base, cesd_cutoff=10, cognition_cutoff=10)
+    else:
+        df_main = preprocess_charls_data(data_path, cesd_cutoff=10, cognition_cutoff=10, age_min=AGE_MIN, write_output=False)
+        if df_main is not None:
+            df_main = prepare_interventions(df_main)
+    if df_main is not None and len(df_main) >= 30:
+        if train_only and not use_imputed_base:
+            df_main = _get_train_subset(df_main)
+            if df_main is not None and len(df_main) >= 30:
+                logger.info(f"  完整病例敏感性使用训练集子集 (n={len(df_main)})")
+        if df_main is not None and len(df_main) >= 30:
+            for treatment_col, treatment_label in interventions:
+                if treatment_col not in df_main.columns:
+                    continue
+                logger.info(f"敏感性场景: Complete-case ({treatment_label})" + (" (插补后数据)" if use_imputed_base else ""))
+                for axis_label, axis_name in [('A', 'Healthy'), ('B', 'Depression'), ('C', 'Cognition')]:
+                    r = run_one_scenario(df_main, f'Complete-case {treatment_label}', axis_label, axis_name, treatment_col=treatment_col, treatment_label=treatment_label, restrict_complete_case=True)
+                    rows.append(r)
+    summary = pd.DataFrame(rows)
+    out_csv = os.path.join(final_dir, 'sensitivity_summary.csv')
+    summary.to_csv(out_csv, index=False, encoding='utf-8-sig')
+    with open(os.path.join(final_dir, 'sensitivity_analysis_readme.txt'), 'w', encoding='utf-8') as f:
+        f.write("Sensitivity analyses for diagnostic thresholds were performed using only the training set (80%% of data)\n")
+        f.write("to avoid information leakage from the hold-out test set. Same GroupShuffleSplit as compare_models.\n")
+    try:
+        summary.to_excel(os.path.join(final_dir, 'sensitivity_summary.xlsx'), index=False, engine='openpyxl')
+    except Exception as e:
+        logger.warning(f"Excel 导出跳过 (需 openpyxl): {e}")
+    logger.info(f"已保存: {out_csv}")
+    plot_df = summary.dropna(subset=['ate'])
+    if len(plot_df) > 0:
+        for treatment_col, treatment_label in interventions:
+            sub = plot_df[plot_df['intervention'] == treatment_col]
+            if len(sub) == 0:
+                continue
+            scenarios = sub['scenario'].unique().tolist()
+            fig, ax = plt.subplots(figsize=(12, 6))
+            x = np.arange(len(scenarios))
+            width = 0.25
+            for i, (axis_label, name, color) in enumerate([
+                ('A', 'Healthy (A)', '#5cb85c'),
+                ('B', 'Depression (B)', '#d9534f'),
+                ('C', 'Cognition (C)', '#5bc0de')
+            ]):
+                ates, lbs, ubs = [], [], []
+                for s in scenarios:
+                    r = sub[(sub['axis'] == axis_label) & (sub['scenario'] == s)]
+                    if len(r) > 0:
+                        r = r.iloc[0]
+                        ates.append(r['ate'])
+                        lbs.append(r['ate_lb'])
+                        ubs.append(r['ate_ub'])
+                    else:
+                        ates.append(np.nan)
+                        lbs.append(np.nan)
+                        ubs.append(np.nan)
+                off = (i - 1) * width
+                ax.bar(x + off, ates, width, label=name, color=color, alpha=0.8)
+                err_lo = np.array(ates) - np.array(lbs)
+                err_hi = np.array(ubs) - np.array(ates)
+                ax.errorbar(x + off, ates, yerr=[np.nan_to_num(err_lo, nan=0), np.nan_to_num(err_hi, nan=0)], fmt='none', color='black', capsize=2)
+            ax.set_xticks(x)
+            ax.set_xticklabels(scenarios, rotation=30, ha='right')
+            ax.set_ylabel('ATE (risk difference)')
+            ax.set_title(f'截断值敏感性: {treatment_label} ATE by scenario')
+            ax.axhline(0, color='gray', linestyle='--', alpha=0.5)
+            ax.legend()
+            plt.tight_layout()
+            safe_name = treatment_col.replace(' ', '_')
+            plt.savefig(os.path.join(final_dir, f'sensitivity_ate_comparison_{safe_name}.png'), dpi=300)
+            plt.close()
+            logger.info(f"已保存: {final_dir}/sensitivity_ate_comparison_{safe_name}.png")
+    return summary
+def main():
+    cleanup_temp_cat_dirs()
+    data_path = 'CHARLS.csv'
+    final_dir = 'LIU_JUE_STRATEGIC_SUMMARY'
+    run_sensitivity_scenarios_analysis(final_dir=final_dir, data_path=data_path)
+    logger.info("恢复主定义预处理并写盘...")
+    from config import AGE_MIN
+    preprocess_charls_data(data_path, cesd_cutoff=10, cognition_cutoff=10, age_min=AGE_MIN, write_output=True)
+    logger.info("敏感性分析完成。")
+if __name__ == '__main__':
+    main()

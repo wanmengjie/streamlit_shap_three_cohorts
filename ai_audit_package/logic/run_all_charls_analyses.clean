@@ -1,0 +1,235 @@
+# run_all_charls_analyses.py (Original: 299 lines, Cleaned: 234 lines)
+import os
+import random
+import logging
+import pandas as pd
+import numpy as np
+import matplotlib
+import warnings
+import shutil
+import time
+from config import *
+warnings.filterwarnings("ignore", category=UserWarning, module="joblib")
+warnings.filterwarnings("ignore", category=UserWarning, module="loky")
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import seaborn as sns
+def safe_remove_dir(path):
+    if not os.path.exists(path):
+        return
+    for _ in range(3):
+        try:
+            shutil.rmtree(path)
+            break
+        except OSError:
+            time.sleep(1)
+logging.basicConfig(
+    level=logging.INFO, 
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[logging.FileHandler("LIU_JUE_FINAL_FIXED.log", encoding='utf-8'), logging.StreamHandler()]
+)
+logger = logging.getLogger(__name__)
+from charls_complete_preprocessing import preprocess_charls_data, reapply_cohort_definition
+from charls_table1_stats import generate_baseline_table
+from charls_model_comparison import compare_models
+from charls_shap_analysis import run_shap_analysis_v2 
+from charls_clinical_evaluation import run_clinical_evaluation
+from charls_clinical_decision_support import run_clinical_decision_support 
+from charls_subgroup_analysis import run_subgroup_analysis, draw_performance_radar
+from charls_recalculate_causal_impact import estimate_causal_impact, cleanup_temp_cat_dirs
+from charls_imputation_audit import run_imputation_sensitivity_preprocessed
+from charls_sensitivity_analysis import run_sensitivity_analysis
+from run_sensitivity_scenarios import run_sensitivity_scenarios_analysis, _get_train_subset
+from run_multi_exposure_causal import prepare_exposures, run_multi_exposure_analysis
+from draw_attrition_flowchart import draw_flowchart
+from charls_extra_figures import draw_all_extra_figures
+from draw_conceptual_framework import draw_conceptual_framework
+from draw_roc_combined import draw_roc_combined
+from charls_external_validation import run_external_validation
+from charls_shap_stratified import run_stratified_shap, run_shap_interaction
+from charls_dose_response import run_dose_response
+from charls_ite_validation import run_ite_stratified_validation
+from charls_causal_methods_comparison import run_causal_methods_comparison
+from charls_temporal_analysis import run_temporal_analysis
+from charls_nomogram import run_nomogram
+def run_axis_protocol(df_sub, path_dir, axis_label, axis_desc):
+    logger.info("\n" + "#"*70 + f"\n>>> 启动【轴线{axis_label}】：{axis_desc}\n" + "#"*70)
+    safe_remove_dir(path_dir)
+    os.makedirs(path_dir, exist_ok=True)
+    perf_df, models = compare_models(df_sub, output_dir=f'{path_dir}/01_prediction', target_col=TARGET_COL,
+                                     save_roc_path=os.path.join(path_dir, '01_prediction', 'roc_data.json'))
+    best_model = models[perf_df.iloc[0]['Model']]
+    draw_performance_radar(perf_df, output_dir=f'{path_dir}/01_prediction')
+    run_shap_analysis_v2(df_sub, model=best_model, output_dir=f'{path_dir}/02_shap', target_col=TARGET_COL)
+    try:
+        run_stratified_shap(df_sub, best_model, output_dir=f'{path_dir}/02_shap_stratified', target_col=TARGET_COL)
+        run_shap_interaction(df_sub, best_model, output_dir=f'{path_dir}/02_shap', target_col=TARGET_COL)
+    except Exception as ex:
+        logger.warning(f"分层/交互 SHAP 跳过: {ex}")
+    res_df, (ate, ate_lb, ate_ub) = estimate_causal_impact(df_sub, treatment_col=TREATMENT_COL, output_dir=f'{path_dir}/03_causal')
+    if res_df is not None:
+        run_sensitivity_analysis(res_df, output_dir=f'{path_dir}/07_sensitivity', treatment_col=TREATMENT_COL)
+        causal_col = f'causal_impact_{TREATMENT_COL}'
+        if causal_col in res_df.columns:
+            try:
+                run_ite_stratified_validation(res_df, causal_col, TREATMENT_COL,
+                                              output_dir=f'{path_dir}/03_causal/ite_validation')
+                run_nomogram(res_df, causal_col, TREATMENT_COL, output_dir=f'{path_dir}/03_causal/nomogram')
+            except Exception as ex:
+                logger.warning(f"ITE/列线图跳过: {ex}")
+        try:
+            run_temporal_analysis(df_sub, TREATMENT_COL, output_dir=f'{path_dir}/03_causal/temporal')
+        except Exception as ex:
+            logger.warning(f"时序分析跳过: {ex}")
+    run_clinical_evaluation(df_sub, model=best_model, output_dir=f'{path_dir}/04_eval', target_col=TARGET_COL)
+    run_clinical_decision_support(df_sub, model=best_model, output_dir=f'{path_dir}/05_decision', target_col=TARGET_COL)
+    try:
+        run_external_validation(df_sub, model=best_model, output_dir=f'{path_dir}/04b_external_validation',
+                                target_col=TARGET_COL, axis_label=axis_label)
+    except Exception as ex:
+        logger.warning(f"外部验证跳过: {ex}")
+    try:
+        run_dose_response(df_sub, output_dir=f'{path_dir}/04c_dose_response', target_col=TARGET_COL)
+    except Exception as ex:
+        logger.warning(f"剂量反应分析跳过: {ex}")
+    causal_col = next((c for c in df_sub.columns if c.startswith('causal_impact_')), None)
+    if causal_col is not None:
+        run_subgroup_analysis(df_sub, output_dir=f'{path_dir}/06_subgroup')
+    else:
+        logger.warning("未找到因果效应列，跳过亚组分析。")
+    auc = perf_df.iloc[0]['AUC'] if len(perf_df) > 0 else 0.0
+    return df_sub[TARGET_COL].mean(), (ate, ate_lb, ate_ub), auc
+def main():
+    random.seed(RANDOM_SEED)
+    np.random.seed(RANDOM_SEED)
+    log_path = os.path.abspath("LIU_JUE_FINAL_FIXED.log")
+    logger.info("🚀 启动修复版【刘珏老师版】全量科研管线...")
+    cleanup_temp_cat_dirs()  # 清理历史遗留的 CatBoost 临时目录
+    logger.info(f"📂 日志文件: {log_path} （另开终端用 -Wait 可实时查看）")
+    try:
+        df_clean = None
+        df_base_for_sensitivity = None  # 敏感性分析用：插补时传完整插补数据，否则 None
+        if USE_IMPUTED_DATA and os.path.exists(IMPUTED_DATA_PATH):
+            try:
+                df_imputed = pd.read_csv(IMPUTED_DATA_PATH, encoding='utf-8-sig')
+                if 'age' in df_imputed.columns:
+                    df_imputed = df_imputed[df_imputed['age'] >= AGE_MIN]
+                prepare_exposures(df_imputed)
+                df_clean = reapply_cohort_definition(df_imputed, CESD_CUTOFF, COGNITION_CUTOFF)
+                df_base_for_sensitivity = _get_train_subset(df_imputed)
+                logger.info(f"✅ 已加载插补后数据: {IMPUTED_DATA_PATH}，主队列样本量 {len(df_clean)}，敏感性分析用训练集 n={len(df_base_for_sensitivity)}")
+            except Exception as ex:
+                logger.warning(f"加载插补数据失败: {ex}，回退到预处理数据")
+        if df_clean is None:
+            df_clean = preprocess_charls_data('CHARLS.csv', age_min=AGE_MIN,
+                cesd_cutoff=CESD_CUTOFF, cognition_cutoff=COGNITION_CUTOFF)
+        if df_clean is None:
+            return
+        if df_base_for_sensitivity is None:
+            prepare_exposures(df_clean)  # 预处理分支：构造 sleep_adequate 等
+        df_a = df_clean[df_clean['baseline_group'] == 0].copy()
+        df_b = df_clean[df_clean['baseline_group'] == 1].copy()
+        df_c = df_clean[df_clean['baseline_group'] == 2].copy()
+        if len(df_a) == 0 or len(df_b) == 0 or len(df_c) == 0:
+            logger.warning("某一基线亚组样本为空 (A/B/C)，请检查数据与 baseline_group。仅运行非空亚组。")
+        final_dir = OUTPUT_ROOT
+        os.makedirs(final_dir, exist_ok=True)
+        draw_conceptual_framework(output_path=os.path.join(final_dir, 'fig2_conceptual_framework.png'))
+        if os.path.exists(os.path.join(final_dir, 'table1_baseline_characteristics.csv')):
+            logger.info("✅ Table 1 已存在，跳过生成")
+        else:
+            generate_baseline_table(df_clean, output_dir=final_dir)
+        attrition_src = 'preprocessed_data/attrition_flow.csv'
+        if os.path.exists(attrition_src):
+            shutil.copy(attrition_src, os.path.join(final_dir, 'attrition_flow.csv'))
+            if not os.path.exists(os.path.join(final_dir, 'attrition_flow_diagram.png')):
+                draw_flowchart(csv_path=os.path.join(final_dir, 'attrition_flow.csv'), output_path=os.path.join(final_dir, 'attrition_flow_diagram.png'))
+        imp_sens_dir = os.path.join(final_dir, '07_sensitivity_imputation')
+        if os.path.exists(imp_sens_dir) and os.path.exists(os.path.join(imp_sens_dir, 'imputation_sensitivity_results.csv')):
+            logger.info(f"✅ 插补敏感性分析已存在，跳过: {imp_sens_dir}")
+        else:
+            try:
+                run_imputation_sensitivity_preprocessed(df_clean, output_dir=imp_sens_dir, target_col=TARGET_COL)
+            except Exception as ex:
+                logger.warning(f"插补敏感性分析跳过: {ex}")
+        inc_a, ate_a, auc_a = (run_axis_protocol(df_a, os.path.join('.', AXIS_A_DIR), 'A', '健康人群 -> 共病风险预测') if len(df_a) > 0 else (0.0, (0, 0, 0), 0.0))
+        inc_b, ate_b, auc_b = (run_axis_protocol(df_b, os.path.join('.', AXIS_B_DIR), 'B', '仅抑郁人群 -> 共病演化分析') if len(df_b) > 0 else (0.0, (0, 0, 0), 0.0))
+        inc_c, ate_c, auc_c = (run_axis_protocol(df_c, os.path.join('.', AXIS_C_DIR), 'C', '仅认知受损人群 -> 共病演化分析') if len(df_c) > 0 else (0.0, (0, 0, 0), 0.0))
+        try:
+            run_sensitivity_scenarios_analysis(final_dir=final_dir, data_path='CHARLS.csv', df_base=df_base_for_sensitivity)
+        except Exception as ex:
+            logger.warning(f"截断值敏感性分析跳过: {ex}")
+        try:
+            run_multi_exposure_analysis(df_clean, output_root=os.path.join(final_dir, '08_multi_exposure'))
+        except Exception as ex:
+            logger.warning(f"多暴露因果分析跳过: {ex}")
+        try:
+            from run_all_interventions_analysis import run_all_interventions
+            run_all_interventions(df_clean, output_root=final_dir)
+        except Exception as ex:
+            logger.warning(f"扩展干预分析与森林图跳过: {ex}")
+        try:
+            from charls_causal_methods_comparison import run_all_axes_comparison
+            run_all_axes_comparison(df_clean, output_root=final_dir)
+        except Exception as ex:
+            logger.warning(f"因果方法交叉验证跳过: {ex}")
+        try:
+            from charls_low_sample_optimization import run_for_social_isolation_and_chronic
+            run_for_social_isolation_and_chronic(df_clean, output_root=final_dir)
+        except Exception as ex:
+            logger.warning(f"低样本优化跳过: {ex}")
+        plt.figure(figsize=(10, 6))
+        rates = pd.DataFrame({'Path': ['Healthy', 'Depressed', 'Cognitive'], 'Rate': [inc_a, inc_b, inc_c]})
+        sns.barplot(x='Path', y='Rate', data=rates, hue='Path', palette='Set2', legend=False)
+        plt.title('Incidence Rates across 3 Baselines', fontsize=14)
+        plt.savefig(f'{final_dir}/incidence_comparison.png', dpi=300, bbox_inches=BBOX_INCHES)
+        plt.close()
+        plt.figure(figsize=(12, 8))
+        ate_data = pd.DataFrame({
+            'Path': ['Healthy Start (A)', 'Depressed Start (B)', 'Cognitive Start (C)'],
+            'ATE': [ate_a[0], ate_b[0], ate_c[0]], 
+            'LB': [ate_a[1], ate_b[1], ate_c[1]], 
+            'UB': [ate_a[2], ate_b[2], ate_c[2]]
+        })
+        colors = ['#5cb85c', '#d9534f', '#5bc0de']
+        plt.bar(ate_data['Path'], ate_data['ATE'], color=colors, alpha=0.7)
+        plt.errorbar(range(len(ate_data)), ate_data['ATE'], yerr=[ate_data['ATE']-ate_data['LB'], ate_data['UB']-ate_data['ATE']], fmt='none', c='black', capsize=10)
+        plt.axhline(y=0, color='gray', linestyle='--', alpha=0.5)
+        plt.title('Causal Effect of Exercise (ATE) across 3 Baselines', fontsize=14)
+        plt.savefig(f'{final_dir}/intervention_benefit_comparison.png', dpi=300, bbox_inches=BBOX_INCHES)
+        plt.close()
+        draw_all_extra_figures(df_clean, auc_a, auc_b, auc_c, final_dir)
+        draw_roc_combined(output_path=os.path.join(final_dir, 'fig3_roc_combined.png'))
+        logger.info(f"已生成额外汇总图与 Fig 3 ROC 至 {final_dir}")
+        try:
+            from config import RESULTS_TABLES, RESULTS_FIGURES, RESULTS_MODELS
+            for d in [RESULTS_TABLES, RESULTS_FIGURES, RESULTS_MODELS]:
+                os.makedirs(d, exist_ok=True)
+            def _copy_if_exists(src, dst):
+                if os.path.exists(src):
+                    shutil.copy(src, dst)
+                    return True
+                return False
+            _copy_if_exists(os.path.join(final_dir, 'attrition_flow.csv'), os.path.join(RESULTS_TABLES, 'table1_sample_attrition.csv'))
+            _copy_if_exists(os.path.join('preprocessed_data', 'attrition_flow.csv'), os.path.join(RESULTS_TABLES, 'table1_sample_attrition.csv'))
+            _copy_if_exists(os.path.join(final_dir, 'table1_baseline_characteristics.csv'), os.path.join(RESULTS_TABLES, 'table1_baseline_characteristics.csv'))
+            if not _copy_if_exists(os.path.join(final_dir, 'all_interventions_summary.csv'), os.path.join(RESULTS_TABLES, 'table4_ate_summary.csv')):
+                _copy_if_exists(os.path.join(final_dir, '08_multi_exposure', 'multi_exposure_ate_summary.csv'), os.path.join(RESULTS_TABLES, 'table4_ate_summary.csv'))
+            _copy_if_exists(os.path.join(final_dir, 'causal_methods_comparison_summary.csv'), os.path.join(RESULTS_TABLES, 'table7_psm_psw_dml.csv'))
+            _copy_if_exists(os.path.join(final_dir, '07_sensitivity_imputation', 'imputation_sensitivity_results.csv'), os.path.join(RESULTS_TABLES, 'imputation_sensitivity_results.csv'))
+            for axis, label in [('A', 'Cohort_A_Healthy_Prospective'), ('B', 'Cohort_B_Depression_to_Comorbidity'), ('C', 'Cohort_C_Cognition_to_Comorbidity')]:
+                ev_path = os.path.join(label, '04b_external_validation', 'external_validation_summary.csv')
+                if os.path.exists(ev_path):
+                    shutil.copy(ev_path, os.path.join(RESULTS_TABLES, f'table6_external_validation_axis{axis}.csv'))
+            for axis, label in [('A', AXIS_A_DIR), ('B', AXIS_B_DIR), ('C', AXIS_C_DIR)]:
+                mp = os.path.join(label, '01_prediction', 'champion_model.joblib')
+                if os.path.exists(mp):
+                    shutil.copy(mp, os.path.join(RESULTS_MODELS, f'champion_axis{axis}.joblib'))
+            logger.info("已 consolidate 至 results/tables, results/figures, results/models")
+        except Exception as ex:
+            logger.debug(f"results consolidate 跳过: {ex}")
+        logger.info("\n" + "="*60 + "\n🎉 修复版管线运行圆满结束！\n" + "="*60)
+    except Exception as e:
+        logger.error(f"💥 崩溃: {e}", exc_info=True)
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,155 @@
+# charls_external_validation.py (Original: 197 lines, Cleaned: 154 lines)
+# -*- coding: utf-8 -*-
+import os
+import logging
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.metrics import roc_auc_score, average_precision_score, brier_score_loss
+from sklearn.calibration import calibration_curve
+from sklearn.preprocessing import StandardScaler
+from sklearn.impute import SimpleImputer
+from sklearn.pipeline import Pipeline
+from sklearn.compose import ColumnTransformer
+from sklearn.ensemble import ExtraTreesClassifier
+from charls_feature_lists import get_exclude_cols, CONTINUOUS_FOR_SCALING
+from config import BBOX_INCHES
+logger = logging.getLogger(__name__)
+PROVINCE_TO_REGION = {
+    1: 'East', 2: 'East', 4: 'East', 5: 'East', 6: 'East', 16: 'East', 18: 'East', 24: 'East', 25: 'East',
+    3: 'Central', 7: 'Central', 8: 'Central', 9: 'Central', 17: 'Central', 19: 'Central', 21: 'Central', 23: 'Central',
+    10: 'West', 11: 'West', 12: 'West', 13: 'West', 14: 'West', 15: 'West', 22: 'West', 26: 'West', 27: 'West', 28: 'West',
+}
+def _add_region(df):
+    if 'province' not in df.columns:
+        return df
+    df = df.copy()
+    try:
+        prov = pd.to_numeric(df['province'], errors='coerce')
+        df['_region'] = prov.map(PROVINCE_TO_REGION)
+        df['_region'] = df['_region'].fillna('Unknown')
+    except Exception:
+        df['_region'] = 'Unknown'
+    return df
+def _build_pipeline(X_cols):
+    num_cols = X_cols
+    scale_cols = [c for c in num_cols if c in CONTINUOUS_FOR_SCALING]
+    pass_cols = [c for c in num_cols if c not in scale_cols]
+    if not scale_cols:
+        scale_cols, pass_cols = num_cols, []
+    transformers = [
+        ('num', Pipeline([('imputer', SimpleImputer(strategy='median')), ('scaler', StandardScaler())]), scale_cols)
+    ]
+    if pass_cols:
+        transformers.append(('pass', SimpleImputer(strategy='median'), pass_cols))
+    preprocessor = ColumnTransformer(transformers=transformers)
+    model = ExtraTreesClassifier(n_estimators=300, max_depth=10, class_weight='balanced', random_state=500)
+    return Pipeline([('preprocessor', preprocessor), ('clf', model)])
+def _train_and_evaluate(df_train, df_val, target_col, exclude_cols):
+    X_cols = [c for c in df_train.columns if c not in exclude_cols]
+    X_cols = df_train[X_cols].select_dtypes(include=[np.number]).columns.tolist()
+    if len(X_cols) == 0:
+        return None, None
+    X_train = df_train[X_cols]
+    y_train = df_train[target_col].astype(int)
+    X_val = df_val[X_cols]
+    y_val = df_val[target_col].astype(int)
+    if len(np.unique(y_train)) < 2 or len(np.unique(y_val)) < 2:
+        return None, None
+    pipe = _build_pipeline(X_cols)
+    pipe.fit(X_train, y_train)
+    y_prob = pipe.predict_proba(X_val)[:, 1]
+    auc = roc_auc_score(y_val, y_prob)
+    auprc = average_precision_score(y_val, y_prob)
+    brier = brier_score_loss(y_val, y_prob)
+    return {
+        'AUC': auc, 'AUPRC': auprc, 'Brier': brier,
+        'n_train': len(df_train), 'n_val': len(df_val),
+        'y_prob': y_prob, 'y_true': y_val.values
+    }, pipe
+def run_external_validation(df, model=None, output_dir='external_validation', target_col='is_comorbidity_next',
+                            axis_label=''):
+    os.makedirs(output_dir, exist_ok=True)
+    logger.info(f">>> 启动内部外部验证 (Axis {axis_label}, Target: {target_col})...")
+    exclude_cols = get_exclude_cols(df, target_col=target_col)
+    df = _add_region(df)
+    results = []
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+    if 'wave' in df.columns:
+        max_wave = df['wave'].max()
+        df_train_t = df[df['wave'] < max_wave]
+        df_val_t = df[df['wave'] == max_wave]
+        if len(df_train_t) >= 100 and len(df_val_t) >= 50:
+            res_t, _ = _train_and_evaluate(df_train_t, df_val_t, target_col, exclude_cols)
+            if res_t is not None:
+                res_t['Split'] = 'Temporal'
+                res_t['Split_Desc'] = f'Train: wave<{max_wave}, Val: wave={max_wave}'
+                results.append(res_t)
+                prob_true, prob_pred = calibration_curve(res_t['y_true'], res_t['y_prob'], n_bins=10)
+                axes[0].plot(prob_pred, prob_true, marker='o', label=f'Temporal (AUC={res_t["AUC"]:.3f})')
+                logger.info(f"时间验证: AUC={res_t['AUC']:.4f}, AUPRC={res_t['AUPRC']:.4f}, Brier={res_t['Brier']:.4f}")
+        else:
+            logger.warning(f"时间验证样本不足: train={len(df_train_t)}, val={len(df_val_t)}")
+    if '_region' in df.columns:
+        regions = df['_region'].dropna().unique()
+        valid_regions = [r for r in regions if r != 'Unknown']
+        if len(valid_regions) >= 2:
+            train_regions = [r for r in valid_regions if r in ('East', 'Central')]
+            val_regions = [r for r in valid_regions if r == 'West']
+            if len(val_regions) == 0:
+                val_regions = [valid_regions[-1]]
+                train_regions = [r for r in valid_regions if r != val_regions[0]]
+            if train_regions and val_regions:
+                df_train_r = df[df['_region'].isin(train_regions)]
+                df_val_r = df[df['_region'].isin(val_regions)]
+                if len(df_train_r) >= 100 and len(df_val_r) >= 50:
+                    res_r, _ = _train_and_evaluate(df_train_r, df_val_r, target_col, exclude_cols)
+                    if res_r is not None:
+                        res_r['Split'] = 'Regional'
+                        res_r['Split_Desc'] = f'Train: {"+".join(train_regions)}, Val: {"+".join(val_regions)}'
+                        results.append(res_r)
+                        prob_true, prob_pred = calibration_curve(res_r['y_true'], res_r['y_prob'], n_bins=10)
+                        axes[1].plot(prob_pred, prob_true, marker='s', label=f'Regional (AUC={res_r["AUC"]:.3f})')
+                        logger.info(f"区域验证: AUC={res_r['AUC']:.4f}, AUPRC={res_r['AUPRC']:.4f}")
+        else:
+            logger.warning("区域划分不足，跳过区域验证")
+    for ax in axes:
+        ax.plot([0, 1], [0, 1], linestyle='--', color='gray', label='Perfect')
+        ax.set_xlabel('Mean Predicted Probability')
+        ax.set_ylabel('Fraction of Positives')
+        ax.legend()
+    axes[0].set_title('Temporal Validation Calibration')
+    axes[1].set_title('Regional Validation Calibration')
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, 'external_validation_calibration.png'), dpi=150, bbox_inches=BBOX_INCHES)
+    plt.close()
+    summary = []
+    for r in results:
+        summary.append({
+            'Split': r['Split'],
+            'Split_Desc': r.get('Split_Desc', ''),
+            'AUC': r['AUC'],
+            'AUPRC': r['AUPRC'],
+            'Brier': r['Brier'],
+            'n_train': r['n_train'],
+            'n_val': r['n_val']
+        })
+    if summary:
+        summary_df = pd.DataFrame(summary)
+        summary_df.to_csv(os.path.join(output_dir, 'external_validation_summary.csv'), index=False, encoding='utf-8-sig')
+        try:
+            summary_df.to_excel(os.path.join(output_dir, 'external_validation_summary.xlsx'), index=False)
+        except Exception:
+            pass
+        logger.info(f"外部验证结果已保存至 {output_dir}/external_validation_summary.csv")
+    return summary_df if summary else pd.DataFrame()
+if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    from charls_complete_preprocessing import preprocess_charls_data
+    df = preprocess_charls_data('CHARLS.csv', age_min=60)
+    if df is not None:
+        for axis_label, baseline_val in [('A', 0), ('B', 1), ('C', 2)]:
+            df_sub = df[df['baseline_group'] == baseline_val]
+            if len(df_sub) > 0:
+                out = os.path.join('LIU_JUE_STRATEGIC_SUMMARY', f'Axis_{axis_label}', 'external_validation')
+                run_external_validation(df_sub, output_dir=out, axis_label=axis_label)

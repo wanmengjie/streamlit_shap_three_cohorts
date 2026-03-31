@@ -1,0 +1,152 @@
+# charls_complete_preprocessing.py (Original: 222 lines, Cleaned: 151 lines)
+import pandas as pd
+import numpy as np
+import os
+import logging
+import warnings
+from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+warnings.filterwarnings("ignore", message=".*DataFrame is highly fragmented.*")
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+def preprocess_charls_data(input_path='CHARLS.csv', cesd_cutoff=10, cognition_cutoff=10, age_min=60, write_output=True):
+    if not os.path.exists(input_path):
+        logger.error(f"找不到文件: {input_path}")
+        return None
+    logger.info(">>> 启动顶级期刊级预处理 (引入交叉驱动结局)...")
+    try:
+        df = pd.read_csv(input_path, encoding='utf-8')
+    except UnicodeDecodeError:
+        for enc in ('gb18030', 'gbk', 'latin-1'):
+            try:
+                df = pd.read_csv(input_path, encoding=enc)
+                logger.info(f"已使用编码 {enc} 读取: {input_path}")
+                break
+            except (UnicodeDecodeError, Exception):
+                continue
+        else:
+            raise ValueError(f"无法解码 {input_path}，请将文件另存为 UTF-8 或确认编码后传入 encoding 参数")
+    if 'ID' not in df.columns or 'wave' not in df.columns:
+        logger.error("预处理需要列 ID 与 wave，当前数据缺失其一。")
+        return None
+    attrition = [('Raw records (person-waves)', len(df))]
+    age_col = next((c for c in df.columns if 'age' in c.lower()), None)
+    if age_col:
+        df = df[df[age_col] >= age_min]
+        attrition.append((f'Age ≥ {age_min} years', len(df)))
+    if 'income_total' in df.columns:
+        raw_inc = df['income_total'].clip(lower=0)
+        med = raw_inc.median()
+        if pd.isna(med):
+            med = 0
+        df['income_total'] = np.log1p(raw_inc.fillna(med))
+    cesd_col = next((c for c in df.columns if 'cesd' in c.lower() and '10' in c.lower()), None)
+    if cesd_col is None:
+        cesd_col = next((c for c in df.columns if 'cesd' in c.lower()), None)
+    if cesd_col:
+        df = df.dropna(subset=[cesd_col])
+        df['is_depression'] = (df[cesd_col] >= cesd_cutoff).astype(int)
+        attrition.append(('CES-D-10 non-missing', len(df)))
+    cog_col = next((c for c in df.columns if 'total_cognition' in c.lower() or 'total_cog' in c.lower()), None)
+    if cog_col:
+        df = df.dropna(subset=[cog_col])
+        df['is_cognitive_impairment'] = (df[cog_col] <= cognition_cutoff).astype(int)
+        attrition.append(('Cognition score non-missing', len(df)))
+    if 'is_depression' not in df.columns or 'is_cognitive_impairment' not in df.columns:
+        logger.error("预处理失败：缺少 is_depression 或 is_cognitive_impairment，请检查数据是否含 cesd10 及认知列。")
+        return None
+    df['is_comorbidity'] = ((df['is_depression'] == 1) & (df['is_cognitive_impairment'] == 1)).astype(int)
+    df = df.sort_values(by=['ID', 'wave'])
+    df['next_wave_val'] = df.groupby('ID')['wave'].shift(-1)
+    next_cols = [c for c in ['is_depression', 'is_cognitive_impairment', 'is_comorbidity', 'fall_down'] if c in df.columns]
+    for col in next_cols:
+        raw_col = f'{col}_next_raw'
+        df[raw_col] = df.groupby('ID')[col].shift(-1)
+        final_col = f'{col}_next' if 'fall' not in col else 'is_fall_next'
+        mask_valid = (df['next_wave_val'] == df['wave'] + 1)
+        df[final_col] = np.where(mask_valid, df[raw_col], np.nan)
+    if 'is_comorbidity_next' not in df.columns:
+        logger.error("预处理失败：未生成 is_comorbidity_next，请检查数据是否含 is_depression/is_cognitive_impairment 及波次信息。")
+        return None
+    df = df.dropna(subset=['is_comorbidity_next'])
+    attrition.append(('Next-wave comorbidity non-missing', len(df)))
+    df = df.sort_values(by=['ID', 'wave'])
+    df['had_comorbidity_before'] = df.groupby('ID')['is_comorbidity'].transform(
+        lambda x: x.shift(1).fillna(0).cummax()
+    ).astype(int)
+    df = df[(df['is_comorbidity'] == 0) & (df['had_comorbidity_before'] == 0)]
+    attrition.append(('Incident cohort (baseline free of comorbidity)', len(df)))
+    df['baseline_group'] = 0
+    df.loc[(df['is_depression'] == 1) & (df['is_cognitive_impairment'] == 0), 'baseline_group'] = 1
+    df.loc[(df['is_depression'] == 0) & (df['is_cognitive_impairment'] == 1), 'baseline_group'] = 2
+    chronic_cols = ['hibpe', 'diabe', 'cancre', 'lunge', 'hearte', 'stroke', 'psyche', 'arthre']
+    available_chronic = [c for c in chronic_cols if c in df.columns]
+    if available_chronic:
+        df['chronic_burden'] = df[available_chronic].sum(axis=1)
+    if 'rgrip' in df.columns and 'lgrip' in df.columns:
+        df['grip_strength_avg'] = df[['rgrip', 'lgrip']].mean(axis=1)
+    if 'marry' in df.columns and 'family_size' in df.columns:
+        fs_med = df['family_size'].median()
+        fs = df['family_size'].fillna(fs_med if not pd.isna(fs_med) else 2)
+        df['is_socially_isolated'] = ((df['marry'] != 1) & (fs <= 1)).astype(int)
+    semantic_features = [
+        'ID', 'wave', 'province', 'age', 'gender', 'rural', 'edu', 'marry', 'bmi', 
+        'mwaist', 'puff', 'systo', 'diasto', 'pulse', 'lgrip', 'rgrip', 'grip_strength_avg',
+        'exercise', 'sleep', 'smokev', 'drinkev', 'chronic_burden', 'is_socially_isolated',
+        'hibpe', 'lunge', 'cancre', 'diabe', 'hearte', 'stroke', 'psyche', 'arthre', 
+        'total_cognition', 'total_cog', 'cesd10', 'cesd', 'srh', 'satlife', 'income_total', 'family_size',
+        'adlab_c', 'iadl', 'pension', 'ins', 'disability', 'fall_down', 'retire', 'wspeed',
+        'is_depression', 'is_cognitive_impairment', 'baseline_group',
+        'is_comorbidity', 'is_comorbidity_next', 'is_fall_next', 'communityID',
+        'is_depression_next', 'is_cognitive_impairment_next', 'sleep_adequate'
+    ]
+    available_cols = [c for c in semantic_features if c in df.columns]
+    df = df[available_cols].copy()
+    if 'sleep' in df.columns and 'sleep_adequate' in df.columns:
+        df = df.drop(columns=['sleep'])
+    if 'exercise' in df.columns:
+        df['exercise'] = df['exercise'].fillna(0)
+    if 'sleep' in df.columns:
+        df['sleep_adequate'] = (df['sleep'] >= 6).astype(int)
+        pass
+    cat_cols = df.select_dtypes(include=['object']).columns.tolist()
+    for col in cat_cols:
+        if col not in ['ID', 'communityID']:
+            df[col] = LabelEncoder().fit_transform(df[col].astype(str))
+    if write_output:
+        os.makedirs('preprocessed_data', exist_ok=True)
+        df.to_csv('preprocessed_data/CHARLS_final_preprocessed.csv', index=False, encoding='utf-8')
+        attrition_df = pd.DataFrame(attrition, columns=['Step', 'N'])
+        attrition_path = 'preprocessed_data/attrition_flow.csv'
+        attrition_df.to_csv(attrition_path, index=False, encoding='utf-8-sig')
+        num_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+        miss_rows = [{'Variable': c, 'Missing_pct': round(df[c].isna().mean() * 100, 2), 'N_non_missing': int(df[c].notna().sum())}
+                     for c in num_cols if df[c].isna().any()]
+        if miss_rows:
+            pd.DataFrame(miss_rows).to_csv('preprocessed_data/preprocessing_missing_summary.csv', index=False, encoding='utf-8-sig')
+            logger.info(f"变量缺失汇总已写: preprocessed_data/preprocessing_missing_summary.csv")
+        logger.info(f"预处理完成。样本量: {len(df)}；流失表已写: {attrition_path}")
+    else:
+        logger.info(f"预处理完成（未写盘）。样本量: {len(df)}")
+    return df
+def reapply_cohort_definition(df, cesd_cutoff, cognition_cutoff):
+    if df is None or len(df) == 0:
+        return None
+    df = df.copy()
+    cesd_col = next((c for c in df.columns if 'cesd' in c.lower() and '10' in c.lower()), None) or next((c for c in df.columns if 'cesd' in c.lower()), None)
+    cog_col = next((c for c in df.columns if 'total_cognition' in c.lower() or 'total_cog' in c.lower()), None)
+    if not cesd_col or not cog_col:
+        return None
+    if 'is_comorbidity_next' not in df.columns:
+        return None
+    df = df.dropna(subset=[cesd_col, cog_col, 'is_comorbidity_next'])
+    df['is_depression'] = (df[cesd_col] >= cesd_cutoff).astype(int)
+    df['is_cognitive_impairment'] = (df[cog_col] <= cognition_cutoff).astype(int)
+    df['is_comorbidity'] = ((df['is_depression'] == 1) & (df['is_cognitive_impairment'] == 1)).astype(int)
+    df = df.sort_values(by=['ID', 'wave'])
+    df['had_comorbidity_before'] = df.groupby('ID')['is_comorbidity'].transform(lambda x: x.shift(1).fillna(0).cummax()).astype(int)
+    df = df[(df['is_comorbidity'] == 0) & (df['had_comorbidity_before'] == 0)]
+    df['baseline_group'] = 0
+    df.loc[(df['is_depression'] == 1) & (df['is_cognitive_impairment'] == 0), 'baseline_group'] = 1
+    df.loc[(df['is_depression'] == 0) & (df['is_cognitive_impairment'] == 1), 'baseline_group'] = 2
+    return df

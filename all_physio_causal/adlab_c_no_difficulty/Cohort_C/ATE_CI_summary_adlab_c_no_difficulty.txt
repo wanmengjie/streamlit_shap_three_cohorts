@@ -1,0 +1,9 @@
+Treatment: adlab_c_no_difficulty
+ATE (point estimate): -0.0497
+95% CI: (-0.4564, 0.3570)
+90% CI: (-0.3910, 0.2916)
+N: 2435
+Overlap trimming (PS not in [0.05,0.95]): 1034 excluded (42.5%)
+E-Value (point): 2.21
+E-Value (conservative, from 95%% CI): 0.38
+  (Unmeasured confounder would need RR≥E with both T and Y to explain away the effect)

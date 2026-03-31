@@ -1,0 +1,9 @@
+Treatment: income_total_above_median
+ATE (point estimate): -0.0058
+95% CI: (-0.1423, 0.1306)
+90% CI: (-0.1203, 0.1087)
+N: 8828
+Overlap trimming (PS not in [0.05,0.95]): 5323 excluded (60.3%)
+E-Value (point): 1.49
+E-Value (conservative, from 95%% CI): 0.38
+  (Unmeasured confounder would need RR≥E with both T and Y to explain away the effect)

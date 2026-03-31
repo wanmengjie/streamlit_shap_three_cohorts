@@ -1,0 +1,470 @@
+# charls_cpm_evaluation.py (Original: 657 lines, Cleaned: 469 lines)
+# -*- coding: utf-8 -*-
+import os
+import logging
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.metrics import (
+    roc_curve,
+    roc_auc_score,
+    recall_score,
+    precision_score,
+    f1_score,
+    accuracy_score,
+    brier_score_loss,
+    confusion_matrix,
+)
+from sklearn.calibration import calibration_curve
+try:
+    from config import RANDOM_SEED, BBOX_INCHES
+except ImportError:
+    RANDOM_SEED = 500
+    BBOX_INCHES = 'tight'
+logger = logging.getLogger(__name__)
+def _get_proba_1d(y_prob):
+    y_prob = np.asarray(y_prob)
+    if y_prob.ndim == 2:
+        if y_prob.shape[1] == 2:
+            return y_prob[:, 1]
+        if y_prob.shape[1] == 1:
+            return y_prob[:, 0]
+        raise ValueError(f"predict_proba 返回了意外的列数: {y_prob.shape[1]}")
+    return y_prob
+def _compute_optimal_threshold_from_validation(model, X_val, y_val, model_name="Model"):
+    estimator, _, _ = _extract_search_info(model, model_name)
+    try:
+        y_prob = estimator.predict_proba(X_val)
+    except Exception:
+        return None
+    y_prob = _get_proba_1d(y_prob)
+    y_true = np.asarray(y_val).astype(int)
+    if len(np.unique(y_true)) < 2:
+        return None
+    thresh, _ = _find_optimal_threshold_youden(y_true, y_prob)
+    return thresh
+def _find_optimal_threshold_youden(y_true, y_prob):
+    if len(np.unique(y_true)) < 2:
+        return 0.5, 0.0  # 单类时无法计算 ROC，退回默认阈值
+    try:
+        fpr, tpr, thresholds = roc_curve(y_true, y_prob)
+    except (ValueError, IndexError):
+        return 0.5, 0.0
+    if len(thresholds) == 0 or len(fpr) == 0:
+        return 0.5, 0.0
+    youden = tpr - fpr  # Sensitivity + Specificity - 1 = tpr - fpr
+    idx = np.argmax(youden)
+    return float(thresholds[idx]), float(youden[idx])
+def _format_hyperparams(params_dict):
+    if params_dict is None or not isinstance(params_dict, dict):
+        return ""
+    parts = []
+    for k, v in params_dict.items():
+        key = k.replace("clf__", "") if isinstance(k, str) else k
+        parts.append(f"{key}={v}")
+    return ", ".join(parts)
+def _extract_search_info(model, model_name):
+    best_params = None
+    best_score = None
+    estimator = model
+    if hasattr(model, "best_estimator_"):
+        estimator = model.best_estimator_
+        best_params = getattr(model, "best_params_", None)
+        best_score = getattr(model, "best_score_", None)
+    return estimator, best_params, best_score
+def _bootstrap_ci_at_threshold(y_true, y_prob, opt_threshold, point_estimates, n_bootstraps=1000, random_state=None):
+    if random_state is None:
+        random_state = RANDOM_SEED
+    rng = np.random.RandomState(random_state)
+    y_true = np.asarray(y_true)
+    y_prob = np.asarray(y_prob)
+    n = len(y_true)
+    boot_auc, boot_recall, boot_spec, boot_youden, boot_brier = [], [], [], [], []
+    idx_pos = np.where(y_true == 1)[0]
+    idx_neg = np.where(y_true == 0)[0]
+    n_pos, n_neg = len(idx_pos), len(idx_neg)
+    for _ in range(n_bootstraps):
+        if n_pos > 0 and n_neg > 0:
+            i_pos = rng.choice(idx_pos, size=n_pos, replace=True)
+            i_neg = rng.choice(idx_neg, size=n_neg, replace=True)
+            idx = np.concatenate([i_pos, i_neg])
+            rng.shuffle(idx)
+        else:
+            idx = rng.randint(0, n, n)
+        yt = y_true[idx]
+        yp = y_prob[idx]
+        if len(np.unique(yt)) < 2:
+            continue
+        ypred = (yp >= opt_threshold).astype(int)
+        try:
+            boot_auc.append(roc_auc_score(yt, yp))
+        except (ValueError, IndexError):
+            continue
+        boot_recall.append(recall_score(yt, ypred, zero_division=0))
+        boot_brier.append(brier_score_loss(yt, yp))
+        cm = confusion_matrix(yt, ypred)
+        if cm.shape == (2, 2):
+            tn, fp, fn, tp = cm.ravel()
+            spec = tn / (tn + fp) if (tn + fp) > 0 else 0.0
+            sens = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+            boot_spec.append(spec)
+            boot_youden.append(sens + spec - 1)
+        else:
+            if (yt == 0).sum() == 0:
+                spec = 0.0
+            elif (ypred == 1).all():
+                spec = 0.0
+            else:
+                spec = 1.0
+            tp = int(((yt == 1) & (ypred == 1)).sum())
+            fn = int(((yt == 1) & (ypred == 0)).sum())
+            sens = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+            boot_spec.append(spec)
+            boot_youden.append(sens + spec - 1)
+    def _ci(arr, point_est):
+        if len(arr) < 10:
+            return point_est, point_est
+        return float(np.percentile(arr, 2.5)), float(np.percentile(arr, 97.5))
+    pe = point_estimates
+    return {
+        "AUC": _ci(boot_auc, pe["AUC"]) if boot_auc else (pe["AUC"], pe["AUC"]),
+        "Recall": _ci(boot_recall, pe["Recall"]) if boot_recall else (pe["Recall"], pe["Recall"]),
+        "Specificity": _ci(boot_spec, pe["Specificity"]) if boot_spec else (pe["Specificity"], pe["Specificity"]),
+        "Youden_Index": _ci(boot_youden, pe["Youden_Index"]) if boot_youden else (pe["Youden_Index"], pe["Youden_Index"]),
+        "Brier_Score": _ci(boot_brier, pe["Brier_Score"]) if boot_brier else (pe["Brier_Score"], pe["Brier_Score"]),
+    }
+def _is_imbalance_handled(model_name, best_params):
+    if best_params is None or not isinstance(best_params, dict):
+        return False
+    if "clf__class_weight" in best_params and best_params["clf__class_weight"] == "balanced":
+        return True
+    if "clf__scale_pos_weight" in best_params:
+        v = best_params["clf__scale_pos_weight"]
+        if v is not None and (isinstance(v, (int, float)) and v > 1):
+            return True
+    if "clf__auto_class_weights" in best_params and best_params["clf__auto_class_weights"] == "Balanced":
+        return True
+    if "clf__is_unbalance" in best_params and best_params["clf__is_unbalance"] is True:
+        return True
+    return False
+def evaluate_single_model(model, X_test, y_test, model_name="Model", opt_threshold=None):
+    estimator, best_params, best_score = _extract_search_info(model, model_name)
+    y_true = np.asarray(y_test).astype(int)
+    try:
+        y_prob = estimator.predict_proba(X_test)
+    except Exception as e:
+        logger.warning(f"模型 {model_name} predict_proba 失败: {e}")
+        return None
+    y_prob = _get_proba_1d(y_prob)
+    if opt_threshold is not None:
+        opt_threshold = float(opt_threshold)
+        y_pred_opt = (y_prob >= opt_threshold).astype(int)
+        if len(np.unique(y_true)) >= 2 and len(np.unique(y_pred_opt)) >= 2:
+            cm = confusion_matrix(y_true, y_pred_opt)
+            if cm.shape == (2, 2):
+                tn, fp, fn, tp = cm.ravel()
+                sens = tp / (tp + fn + 1e-9)
+                spec = tn / (tn + fp + 1e-9)
+                youden_val = sens + spec - 1
+            else:
+                youden_val = 0.0
+        else:
+            youden_val = 0.0
+    else:
+        opt_threshold, youden_val = _find_optimal_threshold_youden(y_true, y_prob)
+        y_pred_opt = (y_prob >= opt_threshold).astype(int)
+    try:
+        auc_val = roc_auc_score(y_true, y_prob)
+    except (ValueError, IndexError):
+        auc_val = 0.5  # 单类等边界情况兜底
+    recall_val = recall_score(y_true, y_pred_opt, zero_division=0)
+    precision_val = precision_score(y_true, y_pred_opt, zero_division=0)
+    f1_val = f1_score(y_true, y_pred_opt, zero_division=0)
+    acc_val = accuracy_score(y_true, y_pred_opt)
+    cm = confusion_matrix(y_true, y_pred_opt)
+    if cm.shape == (2, 2) and np.unique(y_pred_opt).size >= 2 and np.unique(y_true).size >= 2:
+        tn, fp, fn, tp = cm.ravel()
+        specificity_val = tn / (tn + fp) if (tn + fp) > 0 else 0.0
+    else:
+        if (y_true == 0).sum() == 0:
+            specificity_val = 0.0
+        elif (y_pred_opt == 1).all():
+            specificity_val = 0.0
+        else:
+            specificity_val = 1.0
+    brier_val = brier_score_loss(y_true, y_prob)
+    best_params_str = _format_hyperparams(best_params) if best_params else ""
+    best_cv_auc = float(best_score) if best_score is not None else np.nan
+    imbalance_handled = _is_imbalance_handled(model_name, best_params)
+    pe = {"AUC": auc_val, "Recall": recall_val, "Specificity": specificity_val, "Youden_Index": youden_val, "Brier_Score": brier_val}
+    ci_dict = _bootstrap_ci_at_threshold(y_true, y_prob, opt_threshold, pe, n_bootstraps=1000, random_state=RANDOM_SEED)
+    def _fmt_ci(val, low, high):
+        return f"{val:.4f} ({low:.4f}-{high:.4f})"
+    return {
+        "Model": model_name,
+        "Imbalance_Handled": imbalance_handled,
+        "AUC": auc_val,
+        "AUC_95CI": _fmt_ci(auc_val, ci_dict["AUC"][0], ci_dict["AUC"][1]),
+        "Optimal_Threshold": opt_threshold,
+        "Recall": recall_val,
+        "Recall_95CI": _fmt_ci(recall_val, ci_dict["Recall"][0], ci_dict["Recall"][1]),
+        "Specificity": specificity_val,
+        "Specificity_95CI": _fmt_ci(specificity_val, ci_dict["Specificity"][0], ci_dict["Specificity"][1]),
+        "Youden_Index": youden_val,
+        "Youden_95CI": _fmt_ci(youden_val, ci_dict["Youden_Index"][0], ci_dict["Youden_Index"][1]),
+        "Brier_Score": brier_val,
+        "Brier_95CI": _fmt_ci(brier_val, ci_dict["Brier_Score"][0], ci_dict["Brier_Score"][1]),
+        "Precision": precision_val,
+        "F1": f1_val,
+        "Accuracy": acc_val,
+        "Best_CV_AUC": best_cv_auc,
+        "Best_Params_Str": best_params_str,
+        "y_prob": y_prob,
+        "y_true": y_true,
+    }
+def evaluate_and_report(
+    models_dict,
+    X_test,
+    y_test,
+    cohort_label="Cohort",
+    output_dir=None,
+    thresholds_dict=None,
+):
+    X_test = pd.DataFrame(X_test) if not isinstance(X_test, pd.DataFrame) else X_test
+    num_cols = X_test.select_dtypes(include=[np.number])
+    if num_cols.shape[1] > 0:
+        X_test = X_test[num_cols.columns]
+    if X_test.empty or len(X_test) == 0:
+        logger.error(f"队列 {cohort_label} 测试集为空。")
+        return None, None, []
+    results = []
+    thresholds_dict = thresholds_dict or {}
+    for name, model in models_dict.items():
+        opt_t = thresholds_dict.get(name)
+        res = evaluate_single_model(model, X_test, y_test, model_name=name, opt_threshold=opt_t)
+        if res is not None:
+            results.append(res)
+    if not results:
+        logger.error(f"队列 {cohort_label} 无有效评估结果。")
+        return None, None, []
+    df_main = pd.DataFrame(
+        [
+            {
+                "Model": r["Model"],
+                "AUC": r["AUC"],
+                "AUC_95CI": r.get("AUC_95CI", ""),
+                "Optimal_Threshold": r["Optimal_Threshold"],
+                "Recall": r["Recall"],
+                "Recall_95CI": r.get("Recall_95CI", ""),
+                "Specificity": r["Specificity"],
+                "Specificity_95CI": r.get("Specificity_95CI", ""),
+                "Youden_Index": r["Youden_Index"],
+                "Youden_95CI": r.get("Youden_95CI", ""),
+                "Brier_Score": r["Brier_Score"],
+                "Brier_95CI": r.get("Brier_95CI", ""),
+                "Imbalance_Handled": r.get("Imbalance_Handled", False),
+            }
+            for r in results
+        ]
+    )
+    df_appendix = pd.DataFrame(
+        [
+            {
+                "Model": r["Model"],
+                "Best_CV_AUC": r["Best_CV_AUC"],
+                "Best_Params_Str": r["Best_Params_Str"],
+                "Imbalance_Handled": r.get("Imbalance_Handled", False),
+            }
+            for r in results
+        ]
+    )
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+        prefix = f"table2_{cohort_label}" if cohort_label else "table2"
+        df_main.to_csv(os.path.join(output_dir, f"{prefix}_main_performance.csv"), index=False, encoding="utf-8-sig")
+        df_appendix.to_csv(os.path.join(output_dir, f"{prefix}_appendix_params.csv"), index=False, encoding="utf-8-sig")
+        logger.info(f"队列 {cohort_label} 主表与附录已保存至 {output_dir}")
+    return df_main, df_appendix, results
+def plot_calibration_curves_1x3(
+    results_a,
+    results_b,
+    results_c,
+    output_path=None,
+):
+    if not results_a or not results_b or not results_c:
+        logger.warning("至少一个队列无结果，跳过校准曲线绘制。")
+        return
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    def _plot_one(ax, results, title):
+        ax.plot([0, 1], [0, 1], linestyle="--", color="gray", label="Perfectly Calibrated")
+        colors = plt.cm.tab20(np.linspace(0, 1, 20))
+        for i, r in enumerate(results):
+            y_true = r["y_true"]
+            y_prob = r["y_prob"]
+            try:
+                prob_true, prob_pred = calibration_curve(y_true, y_prob, n_bins=10)
+                ax.plot(prob_pred, prob_true, marker="o", linewidth=1, label=r["Model"], color=colors[i % 20])
+            except Exception as e:
+                logger.warning(f"校准曲线 {r['Model']} 绘制失败: {e}")
+        ax.set_xlabel("Mean Predicted Probability")
+        ax.set_ylabel("Fraction of Positives")
+        ax.set_title(title)
+        ax.legend(loc="lower right", fontsize=7, ncol=1)
+        ax.set_xlim(-0.05, 1.05)
+        ax.set_ylim(-0.05, 1.05)
+    _plot_one(axes[0], results_a, "Cohort A (Healthy)")
+    _plot_one(axes[1], results_b, "Cohort B (Depression-only)")
+    _plot_one(axes[2], results_c, "Cohort C (Cognition-impaired-only)")
+    plt.tight_layout()
+    if output_path:
+        d = os.path.dirname(output_path)
+        if d:
+            os.makedirs(d, exist_ok=True)
+        plt.savefig(output_path, bbox_inches=BBOX_INCHES, dpi=300)
+        plt.close()
+        logger.info(f"校准曲线已保存: {output_path}")
+    else:
+        plt.show()
+def run_full_cpm_pipeline(
+    models_A,
+    models_B,
+    models_C,
+    X_test_A,
+    y_test_A,
+    X_test_B,
+    y_test_B,
+    X_test_C,
+    y_test_C,
+    output_dir="cpm_evaluation_results",
+    thresholds_A=None,
+    thresholds_B=None,
+    thresholds_C=None,
+):
+    os.makedirs(output_dir, exist_ok=True)
+    df_main_a, df_app_a, res_a = evaluate_and_report(
+        models_A, X_test_A, y_test_A, cohort_label="A", output_dir=output_dir, thresholds_dict=thresholds_A
+    )
+    df_main_b, df_app_b, res_b = evaluate_and_report(
+        models_B, X_test_B, y_test_B, cohort_label="B", output_dir=output_dir, thresholds_dict=thresholds_B
+    )
+    df_main_c, df_app_c, res_c = evaluate_and_report(
+        models_C, X_test_C, y_test_C, cohort_label="C", output_dir=output_dir, thresholds_dict=thresholds_C
+    )
+    plot_calibration_curves_1x3(
+        res_a or [], res_b or [], res_c or [],
+        output_path=os.path.join(output_dir, "calibration_curves_1x3.png"),
+    )
+    if df_main_a is not None and df_main_b is not None and df_main_c is not None:
+        df_main_a = df_main_a.copy()
+        df_main_b = df_main_b.copy()
+        df_main_c = df_main_c.copy()
+        df_main_a["Cohort"] = "A"
+        df_main_b["Cohort"] = "B"
+        df_main_c["Cohort"] = "C"
+        df_combined = pd.concat([df_main_a, df_main_b, df_main_c], ignore_index=True)
+        df_combined.to_csv(
+            os.path.join(output_dir, "table2_main_performance_combined.csv"),
+            index=False,
+            encoding="utf-8-sig",
+        )
+        logger.info("主表合并已保存: table2_main_performance_combined.csv")
+    return {
+        "main_tables": {"A": df_main_a, "B": df_main_b, "C": df_main_c},
+        "appendix_tables": {"A": df_app_a, "B": df_app_b, "C": df_app_c},
+    }
+if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+    )
+    import sys
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from charls_complete_preprocessing import preprocess_charls_data
+    from charls_model_comparison import compare_models
+    from charls_feature_lists import get_exclude_cols
+    from sklearn.model_selection import GroupShuffleSplit
+    from sklearn.base import clone
+    logger.info(">>> 加载数据并划分训练/测试集...")
+    df_clean = preprocess_charls_data("CHARLS.csv", age_min=60, cesd_cutoff=10, cognition_cutoff=10)
+    if df_clean is None:
+        logger.error("预处理失败，退出。")
+        sys.exit(1)
+    target_col = "is_comorbidity_next"
+    output_dir = "cpm_evaluation_results"
+    os.makedirs(output_dir, exist_ok=True)
+    models_A, models_B, models_C = {}, {}, {}
+    X_te_A, y_te_A = None, None
+    X_te_B, y_te_B = None, None
+    X_te_C, y_te_C = None, None
+    thresh_A, thresh_B, thresh_C = {}, {}, {}
+    for cohort_name, baseline_val, models_dict, thresh_dict in [
+        ("A", 0, models_A, thresh_A), ("B", 1, models_B, thresh_B), ("C", 2, models_C, thresh_C)
+    ]:
+        df_sub = df_clean[df_clean["baseline_group"] == baseline_val]
+        if len(df_sub) < 50:
+            logger.warning(f"队列 {cohort_name} 样本过少，跳过。")
+            continue
+        logger.info(f">>> 队列 {cohort_name}: 训练 compare_models...")
+        result = compare_models(
+            df_sub,
+            output_dir=os.path.join(output_dir, f"cohort_{cohort_name}_prediction"),
+            target_col=target_col,
+            return_search_objects=True,
+        )
+        perf_df, models = result[0], result[1]
+        search_objs = result[2] if len(result) > 2 else {}
+        models = {k: search_objs.get(k, v) for k, v in models.items()}
+        exclude_sub = get_exclude_cols(df_sub, target_col=target_col)
+        W_sub = [c for c in df_sub.columns if c not in exclude_sub]
+        X_sub = df_sub[W_sub].select_dtypes(include=[np.number])
+        y_sub = df_sub[target_col].astype(int)
+        gss_sub = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=RANDOM_SEED)
+        tr_idx, te_idx = next(gss_sub.split(X_sub, y_sub, groups=df_sub["ID"]))
+        X_tr = X_sub.iloc[tr_idx]
+        y_tr = y_sub.iloc[tr_idx]
+        X_te = X_sub.iloc[te_idx]
+        y_te = y_sub.iloc[te_idx]
+        common_cols = [c for c in X_te.columns if c in X_sub.columns]
+        X_te = X_te[common_cols]
+        gss_val = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=RANDOM_SEED + 1)
+        tr_inner_idx, val_idx = next(gss_val.split(X_tr, y_tr, groups=df_sub.iloc[tr_idx]["ID"]))
+        X_tr_inner = X_tr.iloc[tr_inner_idx]
+        y_tr_inner = y_tr.iloc[tr_inner_idx]
+        X_val = X_tr.iloc[val_idx]
+        y_val = y_tr.iloc[val_idx]
+        for name, model in models.items():
+            try:
+                est = search_objs.get(name, model)
+                if hasattr(est, "best_estimator_"):
+                    m = clone(est.best_estimator_)
+                else:
+                    m = clone(model)
+                m.fit(X_tr_inner, y_tr_inner)
+                t = _compute_optimal_threshold_from_validation(m, X_val, y_val, model_name=name)
+                if t is not None:
+                    thresh_dict[name] = t
+            except Exception as e:
+                logger.debug(f"队列 {cohort_name} 模型 {name} 阈值计算跳过: {e}")
+        models_dict.update(models)
+        if cohort_name == "A":
+            X_te_A, y_te_A = X_te, y_te
+        elif cohort_name == "B":
+            X_te_B, y_te_B = X_te, y_te
+        else:
+            X_te_C, y_te_C = X_te, y_te
+    if models_A and models_B and models_C and X_te_A is not None and X_te_B is not None and X_te_C is not None:
+        run_full_cpm_pipeline(
+            models_A, models_B, models_C,
+            X_te_A, y_te_A, X_te_B, y_te_B, X_te_C, y_te_C,
+            output_dir=output_dir,
+            thresholds_A=thresh_A, thresholds_B=thresh_B, thresholds_C=thresh_C,
+        )
+    else:
+        for cohort_name, models_dict, X_te, y_te, thresh in [
+            ("A", models_A, X_te_A, y_te_A, thresh_A),
+            ("B", models_B, X_te_B, y_te_B, thresh_B),
+            ("C", models_C, X_te_C, y_te_C, thresh_C),
+        ]:
+            if models_dict and X_te is not None:
+                evaluate_and_report(models_dict, X_te, y_te, cohort_label=cohort_name, output_dir=output_dir, thresholds_dict=thresh)
+    logger.info(">>> CPM 评估流水线完成。")

@@ -1,0 +1,192 @@
+import pandas as pd
+import numpy as np
+import os
+import matplotlib.pyplot as plt
+from sklearn.metrics import precision_recall_curve, average_precision_score, roc_curve, auc, brier_score_loss
+from sklearn.calibration import calibration_curve
+import logging
+from utils.charls_feature_lists import get_exclude_cols
+from config import BBOX_INCHES
+
+# 配置日志
+logger = logging.getLogger(__name__)
+
+def run_clinical_evaluation(df, model=None, output_dir='evaluation_results', target_col='is_comorbidity_next'):
+    """
+    临床综合评价：DCA + 校准曲线 + PR 曲线。
+    注意：当前使用传入的 df 全量计算；若 df 含 train+test，DCA/校准略偏乐观。主 AUC 来自 compare_models 的测试集。
+    """
+    logger.info(f">>> 启动临床综合评价 (Fig 3 升级版, Target: {target_col})...")
+    os.makedirs(output_dir, exist_ok=True)
+
+    # 彻底对齐建模排除名单 (去冗余 + 防泄露)
+    exclude_cols = get_exclude_cols(df, target_col)
+    
+    # 从模型中提取训练时使用的原始特征列（与 predict_proba 输入对齐，避免静默列错位）
+    X_cols = None
+    if model is not None:
+        # 支持 Pipeline 或 CalibratedClassifierCV( pipeline )
+        _model = model.estimator if hasattr(model, 'estimator') else model
+        if hasattr(_model, 'named_steps') and 'preprocessor' in _model.named_steps:
+            preprocessor = _model.named_steps['preprocessor']
+            try:
+                # ColumnTransformer 拟合后 transformers_ 为 (name, trans, columns)，取输入列名
+                if hasattr(preprocessor, 'transformers_'):
+                    input_cols = []
+                    for _, _, cols in preprocessor.transformers_:
+                        if isinstance(cols, (list, np.ndarray)):
+                            input_cols.extend(list(cols))
+                        else:
+                            input_cols.append(cols)
+                    X_cols = [c for c in input_cols if c in df.columns]
+            except Exception as ex:
+                logger.debug(f"从 Pipeline 提取特征列失败: {ex}")
+        if X_cols is None and hasattr(_model, 'feature_names_in_'):
+            X_cols = [c for c in _model.feature_names_in_ if c in df.columns]
+        if X_cols is None and hasattr(model, 'feature_names_'):
+            X_cols = [c for c in model.feature_names_ if c in df.columns]
+    
+    if X_cols is None or len(X_cols) == 0:
+        X_cols = [c for c in df.columns if c not in exclude_cols]
+        X = df[X_cols].select_dtypes(include=[np.number])
+        X_cols = X.columns.tolist()
+    else:
+        X = df[X_cols].copy()
+        X = X.select_dtypes(include=[np.number])
+    if X.shape[1] == 0 or len(X) == 0:
+        logger.warning("临床评价：无可用特征或样本，跳过。")
+        return False
+
+    y_true = df[target_col]
+
+    # 如果提供了模型，使用模型的预测概率
+    if model is not None:
+        logger.info(f"使用模型预测概率进行评价")
+        try:
+            # 优先使用预测概率
+            y_prob = model.predict_proba(X)[:, 1]
+        except Exception as e:
+            logger.warning(f"模型预测失败: {e}，尝试兜底逻辑...")
+            causal_col = next((c for c in df.columns if c.startswith('causal_impact_')), None) or ('causal_impact' if 'causal_impact' in df.columns else None)
+            if causal_col is not None:
+                y_prob = df[causal_col].astype(float)
+                y_prob = (y_prob - y_prob.min()) / (y_prob.max() - y_prob.min() + 1e-9)
+            else:
+                logger.error("既无模型预测也无因果值，评价中止。")
+                return False
+    else:
+        logger.info("未提供模型，使用 Causal Impact (CATE) 进行评价")
+        causal_col = next((c for c in df.columns if c.startswith('causal_impact_')), None) or ('causal_impact' if 'causal_impact' in df.columns else None)
+        if causal_col is None:
+            logger.error("未找到 causal_impact 或 causal_impact_* 列，评价中止。")
+            return False
+        y_prob = df[causal_col].astype(float)
+        y_prob = (y_prob - y_prob.min()) / (y_prob.max() - y_prob.min() + 1e-9)
+
+    plt.figure(figsize=(18, 5))
+
+    # --- 1. DCA (决策曲线) ---
+    plt.subplot(1, 3, 1)
+    thresholds = np.linspace(0, 1, 100)
+    net_benefit_model = []
+    net_benefit_all = []
+    
+    for t in thresholds:
+        tp = ((y_prob >= t) & (y_true == 1)).sum()
+        fp = ((y_prob >= t) & (y_true == 0)).sum()
+        n = len(y_true)
+        if t == 1:
+            net_benefit_model.append(0)
+        else:
+            net_benefit_model.append((tp / n) - (fp / n) * (t / (1 - t)))
+        
+        pos_rate = y_true.mean()
+        net_benefit_all.append(pos_rate - (1 - pos_rate) * (t / (1 - t)) if t < 1 else 0)
+
+    plt.plot(thresholds, net_benefit_model, color='red', label='Causal ML Model')
+    plt.plot(thresholds, net_benefit_all, color='blue', linestyle='--', label='Treat All')
+    plt.axhline(y=0, color='black', linestyle='-', label='Treat None')
+    # DCA 最优阈值：净获益最大的阈值
+    nb_arr = np.array(net_benefit_model)
+    best_idx = np.argmax(nb_arr) if len(nb_arr) > 0 else 0
+    best_threshold = float(thresholds[best_idx]) if len(thresholds) > best_idx else 0.5
+    best_nb = float(nb_arr[best_idx]) if len(nb_arr) > best_idx else 0.0
+    plt.axvline(x=best_threshold, color='green', linestyle=':', alpha=0.7, label=f'Optimal={best_threshold:.4f}')
+    plt.ylim(-0.05, max(net_benefit_all) * 1.2)
+    plt.xlabel('Threshold Probability')
+    plt.ylabel('Net Benefit')
+    plt.title('Decision Curve Analysis (DCA)')
+    plt.legend()
+
+    # --- 2. Calibration Curve (校准曲线) ---
+    plt.subplot(1, 3, 2)
+    prob_true, prob_pred = calibration_curve(y_true, y_prob, n_bins=10)
+    plt.plot(prob_pred, prob_true, marker='o', linewidth=1, label='Causal ML', color='orange')
+    plt.plot([0, 1], [0, 1], linestyle='--', color='gray', label='Perfectly Calibrated')
+    plt.xlabel('Mean Predicted Probability')
+    plt.ylabel('Fraction of Positives')
+    plt.title('Calibration Curve (Reliability Diagram)')
+    plt.legend()
+
+    # --- 3. PR Curve (查准-查全曲线) ---
+    plt.subplot(1, 3, 3)
+    precision, recall, _ = precision_recall_curve(y_true, y_prob)
+    ap = average_precision_score(y_true, y_prob)
+    plt.plot(recall, precision, color='green', label=f'AP = {ap:.4f}')
+    plt.xlabel('Recall')
+    plt.ylabel('Precision')
+    plt.title('Precision-Recall Curve')
+    plt.legend()
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, 'fig3_clinical_evaluation_comprehensive.png'), bbox_inches=BBOX_INCHES)
+    plt.close()
+
+    # --- 4. 校准斜率与 Brier 分解（审稿补充）---
+    prob_true, prob_pred = calibration_curve(y_true, y_prob, n_bins=10)
+    # 校准斜率：logistic 回归 y_true ~ logit(p)，斜率=1 表示完美校准
+    p_safe = np.clip(y_prob, 1e-6, 1 - 1e-6)
+    logit_p = np.log(p_safe / (1 - p_safe))
+    try:
+        from sklearn.linear_model import LogisticRegression
+        lr = LogisticRegression(C=1e10, solver='lbfgs')
+        lr.fit(logit_p.reshape(-1, 1), y_true)
+        cal_slope = float(lr.coef_[0])
+    except Exception as ex:
+        logger.debug(f"校准斜率计算失败: {ex}")
+        cal_slope = np.nan
+    brier = brier_score_loss(y_true, y_prob)
+    # Brier 分解：reliability = 校准误差；resolution = 区分度
+    n_bins_cal = 10
+    prob_true_b, prob_pred_b = calibration_curve(y_true, y_prob, n_bins=n_bins_cal)
+    # 按分位数分箱获取每箱样本量
+    try:
+        bins_edges = np.percentile(y_prob, np.linspace(0, 100, n_bins_cal + 1))
+        bins_edges[-1] += 1e-9
+        bin_idx = np.digitize(y_prob, bins_edges) - 1
+        bin_idx = np.clip(bin_idx, 0, len(prob_true_b) - 1)
+        bin_counts = np.bincount(bin_idx, minlength=len(prob_true_b))[:len(prob_true_b)]
+        n_valid = bin_counts.sum()
+        reliability = (bin_counts / n_valid * (prob_pred_b - prob_true_b) ** 2).sum() if n_valid > 0 else np.nan
+        resolution = (bin_counts / n_valid * (prob_true_b - y_true.mean()) ** 2).sum() if n_valid > 0 else np.nan
+    except Exception as ex:
+        logger.debug(f"Brier 分解计算失败: {ex}")
+        reliability = resolution = np.nan
+    uncertainty = y_true.mean() * (1 - y_true.mean())
+
+    report_path = os.path.join(output_dir, 'calibration_brier_report.txt')
+    with open(report_path, 'w', encoding='utf-8') as f:
+        f.write(f"Calibration & Brier Report (Target: {target_col})\n")
+        f.write(f"=" * 50 + "\n")
+        f.write(f"Calibration slope: {cal_slope:.4f} (ideal=1.0)\n")
+        f.write(f"Brier score: {brier:.4f} (lower=better)\n")
+        f.write(f"Brier decomposition:\n")
+        f.write(f"  - Uncertainty: {uncertainty:.4f}\n")
+        f.write(f"  - Reliability: {reliability:.4f} (calibration error)\n")
+        f.write(f"  - Resolution: {resolution:.4f}\n")
+        f.write(f"\nDCA Optimal Threshold: {best_threshold:.4f} (Net Benefit={best_nb:.4f})\n")
+        f.write(f"  - 建议筛查高危人群时采用该阈值作为阳性 cutoff\n")
+    logger.info(f"校准斜率={cal_slope:.3f}, Brier={brier:.4f} (报告: {report_path})")
+
+    logger.info(f"综合评价完成，报告已生成：{os.path.join(output_dir, 'fig3_clinical_evaluation_comprehensive.png')}")
+    return True

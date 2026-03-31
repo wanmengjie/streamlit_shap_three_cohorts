@@ -1,0 +1,24 @@
+# patch_missing_plots.py (Original: 39 lines, Cleaned: 23 lines)
+import pandas as pd
+import numpy as np
+import os
+import logging
+from charls_complete_preprocessing import preprocess_charls_data
+from charls_recalculate_causal_impact import estimate_causal_impact
+from charls_cate_visualization import run_cate_visualization
+from charls_validation_suite import run_validation_suite
+from charls_subgroup_analysis import run_subgroup_analysis
+from charls_case_study import generate_case_studies
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+def update_missing_plots():
+    logger.info(">>> 正在补全缺失的图表证据...")
+    df = preprocess_charls_data('CHARLS.csv', age_min=60)
+    df_causal = estimate_causal_impact(df)
+    run_cate_visualization(df_causal.copy())
+    run_validation_suite(df_causal.copy())
+    run_subgroup_analysis(df_causal.copy())
+    generate_case_studies(df_causal.copy())
+    logger.info(">>> 图表补全完成！请检查对应文件夹。")
+if __name__ == "__main__":
+    update_missing_plots()

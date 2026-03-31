@@ -1,0 +1,216 @@
+# inference_methods.py (Original: 579 lines, Cleaned: 215 lines)
+import numpy as np
+from .linear_programming import lp_general_graph
+from .maxprod import inference_max_product
+from .common import _validate_params
+def get_installed(method_filter=None):
+    if method_filter is None:
+        method_filter = ["max-product", 'ad3', 'ad3+', 'qpbo', 'ogm', 'lp']
+    installed = []
+    unary = np.zeros((1, 1))
+    pw = np.zeros((1, 1))
+    edges = np.empty((0, 2), dtype=np.int)
+    for method in method_filter:
+        try:
+            if method != 'ad3+':
+                inference_dispatch(unary, pw, edges, inference_method=method)
+            else:
+                inference_dispatch(unary, np.zeros((0,1,1))
+                                   , np.zeros((0,2), dtype=np.int)
+                                   , inference_method=method)
+            installed.append(method)
+        except ImportError:
+            pass
+    return installed
+class InferenceException(Exception):
+    pass
+def inference_dispatch(unary_potentials, pairwise_potentials, edges,
+                       inference_method, return_energy=False, **kwargs):
+    if isinstance(inference_method, tuple):
+        additional_kwargs = inference_method[1]
+        inference_method = inference_method[0]
+        kwargs = kwargs.copy()
+        kwargs.update(additional_kwargs)
+    if inference_method == "qpbo":
+        return inference_qpbo(unary_potentials, pairwise_potentials, edges,
+                              **kwargs)
+    elif inference_method == "lp":
+        return inference_lp(unary_potentials, pairwise_potentials, edges,
+                            return_energy=return_energy, **kwargs)
+    elif inference_method == "ad3":
+        return inference_ad3(unary_potentials, pairwise_potentials, edges,
+                             return_energy=return_energy, **kwargs)
+    elif inference_method == "ad3+":
+        return inference_ad3plus(unary_potentials, pairwise_potentials, edges,
+                             return_energy=return_energy, **kwargs)
+    elif inference_method == "ogm":
+        return inference_ogm(unary_potentials, pairwise_potentials, edges,
+                             return_energy=return_energy, **kwargs)
+    elif inference_method == "unary":
+        return inference_unaries(unary_potentials, pairwise_potentials, edges,
+                                 **kwargs)
+    elif inference_method == "max-product":
+        return inference_max_product(unary_potentials, pairwise_potentials,
+                                     edges, **kwargs)
+    else:
+        raise ValueError("inference_method must be 'max-product', 'lp', 'ad3',"
+                         " 'qpbo' or 'ogm', got %s" % inference_method)
+def inference_ogm(unary_potentials, pairwise_potentials, edges,
+                  return_energy=False, alg='dd', init=None,
+                  reserveNumFactorsPerVariable=2, **kwargs):
+    import opengm
+    n_states, pairwise_potentials = \
+        _validate_params(unary_potentials, pairwise_potentials, edges)
+    n_nodes = len(unary_potentials)
+    gm = opengm.gm(np.ones(n_nodes, dtype=opengm.label_type) * n_states)
+    nFactors = int(n_nodes + edges.shape[0])
+    gm.reserveFactors(nFactors)
+    gm.reserveFunctions(nFactors, 'explicit')
+    unaries = np.require(unary_potentials, dtype=opengm.value_type) * -1.0
+    fidUnaries = gm.addFunctions(unaries)
+    visUnaries = np.arange(n_nodes, dtype=opengm.label_type)
+    gm.addFactors(fidUnaries, visUnaries)
+    secondOrderFunctions = -np.require(pairwise_potentials,
+                                       dtype=opengm.value_type)
+    fidSecondOrder = gm.addFunctions(secondOrderFunctions)
+    gm.addFactors(fidSecondOrder, edges.astype(np.uint64))
+    if alg == 'bp':
+        inference = opengm.inference.BeliefPropagation(gm)
+    elif alg == 'dd':
+        inference = opengm.inference.DualDecompositionSubgradient(gm)
+    elif alg == 'trws':
+        inference = opengm.inference.TrwsExternal(gm)
+    elif alg == 'trw':
+        inference = opengm.inference.TreeReweightedBp(gm)
+    elif alg == 'gibbs':
+        inference = opengm.inference.Gibbs(gm)
+    elif alg == 'lf':
+        inference = opengm.inference.LazyFlipper(gm)
+    elif alg == 'icm':
+        inference = opengm.inference.Icm(gm)
+    elif alg == 'dyn':
+        inference = opengm.inference.DynamicProgramming(gm)
+    elif alg == 'fm':
+        inference = opengm.inference.AlphaExpansionFusion(gm)
+    elif alg == 'gc':
+        inference = opengm.inference.GraphCut(gm)
+    elif alg == 'loc':
+        inference = opengm.inference.Loc(gm)
+    elif alg == 'mqpbo':
+        inference = opengm.inference.Mqpbo(gm)
+    elif alg == 'alphaexp':
+        inference = opengm.inference.AlphaExpansion(gm)
+    if init is not None:
+        inference.setStartingPoint(init)
+    inference.infer()
+    res = inference.arg().astype(np.int)
+    if return_energy:
+        return res, gm.evaluate(res)
+    return res
+def inference_qpbo(unary_potentials, pairwise_potentials, edges, **kwargs):
+    from pyqpbo import alpha_expansion_general_graph
+    shape_org = unary_potentials.shape[:-1]
+    n_states, pairwise_potentials = \
+        _validate_params(unary_potentials, pairwise_potentials, edges)
+    unary_potentials = (-1000 * unary_potentials).copy().astype(np.int32)
+    unary_potentials = unary_potentials.reshape(-1, n_states)
+    pairwise_potentials = (-1000 * pairwise_potentials).copy().astype(np.int32)
+    edges = edges.astype(np.int32).copy()
+    y = alpha_expansion_general_graph(edges, unary_potentials,
+                                      pairwise_potentials, random_seed=1)
+    return y.reshape(shape_org)
+def inference_lp(unary_potentials, pairwise_potentials, edges, relaxed=False,
+                 return_energy=False, **kwargs):
+    shape_org = unary_potentials.shape[:-1]
+    n_states, pairwise_potentials = \
+        _validate_params(unary_potentials, pairwise_potentials, edges)
+    unaries = unary_potentials.reshape(-1, n_states)
+    res = lp_general_graph(-unaries, edges, -pairwise_potentials)
+    unary_marginals, pairwise_marginals, energy = res
+    if relaxed:
+        unary_marginals = unary_marginals.reshape(unary_potentials.shape)
+        y = (unary_marginals, pairwise_marginals)
+    else:
+        y = np.argmax(unary_marginals, axis=-1)
+        y = y.reshape(shape_org)
+    if return_energy:
+        return y, energy
+    return y
+def inference_ad3(unary_potentials, pairwise_potentials, edges, relaxed=False,
+                  verbose=0, return_energy=False, branch_and_bound=False,
+                  inference_exception=None):
+    import ad3
+    bMultiType = isinstance(unary_potentials, list)
+    if bMultiType:
+        res = ad3.general_graph(unary_potentials, edges, pairwise_potentials
+                                , verbose=verbose
+                                , n_iterations=4000, exact=branch_and_bound)
+    else:
+        n_states, pairwise_potentials = \
+            _validate_params(unary_potentials, pairwise_potentials, edges)
+        unaries = unary_potentials.reshape(-1, n_states)
+        res = ad3.general_graph(unaries, edges, pairwise_potentials
+                                , verbose=verbose, n_iterations=4000
+                                , exact=branch_and_bound)
+    unary_marginals, pairwise_marginals, energy, solver_status = res
+    if verbose:
+        print(solver_status)
+    if solver_status in ["fractional", "unsolved"] and relaxed:
+        if bMultiType:
+            y = (unary_marginals, pairwise_marginals)  #those two are lists
+        else:
+            unary_marginals = unary_marginals.reshape(unary_potentials.shape)
+            y = (unary_marginals, pairwise_marginals)
+    else:
+        if bMultiType:
+            if inference_exception and solver_status in ["fractional"
+                                                         , "unsolved"]:
+                raise InferenceException(solver_status)
+            ly = list()
+            _cum_n_states = 0
+            for unary_marg in unary_marginals:
+                ly.append( _cum_n_states + np.argmax(unary_marg, axis=-1) )
+                _cum_n_states += unary_marg.shape[1]  
+            y = np.hstack(ly)            
+        else:
+            y = np.argmax(unary_marginals, axis=-1)
+    if return_energy:
+        return y, -energy
+    return y
+def inference_ad3plus(l_unary_potentials, l_pairwise_potentials, l_edges
+                      , relaxed=False
+                      , verbose=0, return_energy=False, branch_and_bound=False
+                      , constraints=None, inference_exception=None):
+    import ad3
+    bMultiType = isinstance(l_unary_potentials, list)
+    res = ad3.general_constrained_graph(l_unary_potentials, l_edges
+                                        , l_pairwise_potentials, constraints
+                                        , verbose=verbose
+                                        , n_iterations=4000
+                                        , exact=branch_and_bound)
+    l_unary_marginals, l_pairwise_marginals, energy, solver_status = res
+    if verbose:
+        print(solver_status)
+    if relaxed and solver_status in ["fractional", "unsolved"]:
+        y = (l_unary_marginals, l_pairwise_marginals)
+    else:
+        if inference_exception and solver_status in ["fractional", "unsolved"]:
+            raise InferenceException(solver_status)
+        if bMultiType:
+            ly = list()
+            _cum_n_states = 0
+            for unary_marg in l_unary_marginals:
+                ly.append( _cum_n_states + np.argmax(unary_marg, axis=-1) )
+                _cum_n_states += unary_marg.shape[1] 
+            y = np.hstack(ly)
+        else:
+            y = np.argmax(l_unary_marginals, axis=-1)
+    if return_energy:
+        return y, -energy
+    return y
+def inference_unaries(unary_potentials, pairwise_potentials, edges, verbose=0
+                      , **kwargs):
+    n_states, pairwise_potentials = \
+        _validate_params(unary_potentials, pairwise_potentials, edges)
+    unaries = unary_potentials.reshape(-1, n_states)
+    return np.argmax(unaries, axis=-1)

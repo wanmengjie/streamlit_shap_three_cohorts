@@ -1,0 +1,6 @@
+=== E-Value: 未测量混杂敏感性 (Unmeasured Confounding) ===
+Treatment: exercise
+ATE: -0.0233, 95%% CI: (-0.0490, -0.0033)
+E-Value (point): 1.63
+E-Value (conservative, from 95%% CI): 2.27
+Interpretation: An unmeasured confounder would need RR>=E with both T and Y to explain away the effect.

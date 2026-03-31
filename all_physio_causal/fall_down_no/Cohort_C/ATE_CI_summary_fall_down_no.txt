@@ -1,0 +1,9 @@
+Treatment: fall_down_no
+ATE (point estimate): -0.0502
+95% CI: (-0.1967, 0.0963)
+90% CI: (-0.1732, 0.0727)
+N: 2435
+Overlap trimming (PS not in [0.05,0.95]): 1 excluded (0.0%)
+E-Value (point): 1.93
+E-Value (conservative, from 95%% CI): 20.97
+  (Unmeasured confounder would need RR≥E with both T and Y to explain away the effect)

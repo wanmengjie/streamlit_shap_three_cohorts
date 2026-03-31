@@ -1,0 +1,6 @@
+=== E-Value: 未测量混杂敏感性 (Unmeasured Confounding) ===
+Treatment: drinkev
+ATE: -0.0080, 95%% CI: (-0.0168, 0.0005)
+E-Value (point): 1.69
+E-Value (conservative, from 95%% CI): 2.45
+Interpretation: An unmeasured confounder would need RR>=E with both T and Y to explain away the effect.

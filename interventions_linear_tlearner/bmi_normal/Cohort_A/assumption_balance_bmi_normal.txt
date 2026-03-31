@@ -1,0 +1,5 @@
+=== 协变量平衡检验 (Covariate Balance / SMD) ===
+Treatment: bmi_normal
+Max |SMD|: 2.5028
+Covariates with |SMD|>=0.1: 23 / 36
+Interpretation: |SMD|<0.1 balanced; 0.1-0.2 moderate; >0.2 substantial imbalance.

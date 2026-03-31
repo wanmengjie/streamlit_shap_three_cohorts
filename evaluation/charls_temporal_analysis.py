@@ -1,0 +1,77 @@
+# -*- coding: utf-8 -*-
+"""
+时序分析（审稿意见补充）
+利用 wave 信息，分析干预暴露持续时间与共病发生风险的关联。
+"""
+import os
+import logging
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.linear_model import LogisticRegression
+from sklearn.impute import SimpleImputer
+from utils.charls_feature_lists import get_exclude_cols
+from config import BBOX_INCHES
+
+logger = logging.getLogger(__name__)
+
+
+def run_temporal_analysis(df, treatment_col='exercise', output_dir='temporal_analysis',
+                         target_col='is_comorbidity_next'):
+    """
+    分析暴露持续时间：对每个 ID，计算连续暴露的 wave 数，与结局关联。
+    """
+    if 'wave' not in df.columns or 'ID' not in df.columns:
+        logger.warning("时序分析需 ID 与 wave，跳过")
+        return None
+
+    os.makedirs(output_dir, exist_ok=True)
+    df = df.sort_values(['ID', 'wave'])
+    T = df[treatment_col].fillna(0).astype(int)
+
+    duration = []
+    for gid, g in df.groupby('ID'):
+        waves = g['wave'].sort_values().values
+        t_vals = g[treatment_col].fillna(0).astype(int).values
+        y = g[target_col].iloc[-1] if len(g) > 0 else np.nan
+        if len(waves) < 2 or pd.isna(y):
+            continue
+        consec = 0
+        max_consec = 0
+        for i in range(len(t_vals)):
+            if t_vals[i] == 1:
+                consec += 1
+                max_consec = max(max_consec, consec)
+            else:
+                consec = 0
+        duration.append({'ID': gid, 'exposure_duration_waves': max_consec, 'Y': y})
+
+    dur_df = pd.DataFrame(duration)
+    if len(dur_df) < 50 or dur_df['exposure_duration_waves'].nunique() < 2:
+        logger.warning("时序分析样本或暴露变异不足，跳过")
+        return None
+
+    dur_df['duration_bin'] = pd.cut(dur_df['exposure_duration_waves'], bins=[-0.1, 0, 1, 2, 10],
+                                    labels=['0', '1', '2', '3+'])
+    results = []
+    for lb in dur_df['duration_bin'].dropna().unique():
+        m = dur_df['duration_bin'] == lb
+        if m.sum() >= 20:
+            rate = dur_df.loc[m, 'Y'].mean()
+            results.append({'duration': str(lb), 'rate': rate, 'n': m.sum()})
+
+    res_df = pd.DataFrame(results)
+    res_df.to_csv(os.path.join(output_dir, f'temporal_{treatment_col}.csv'), index=False, encoding='utf-8-sig')
+
+    if len(res_df) >= 2:
+        plt.figure(figsize=(8, 5))
+        plt.bar(range(len(res_df)), res_df['rate'], color='teal', alpha=0.8)
+        plt.xticks(range(len(res_df)), res_df['duration'])
+        plt.xlabel('Exposure Duration (waves)')
+        plt.ylabel('Comorbidity Rate')
+        plt.title(f'Temporal Analysis: {treatment_col}')
+        plt.tight_layout()
+        plt.savefig(os.path.join(output_dir, f'fig_temporal_{treatment_col}.png'), dpi=200, bbox_inches=BBOX_INCHES)
+        plt.close()
+
+    return res_df

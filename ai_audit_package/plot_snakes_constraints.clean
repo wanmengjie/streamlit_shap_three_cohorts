@@ -1,0 +1,79 @@
+# plot_snakes_constraints.py (Original: 269 lines, Cleaned: 78 lines)
+import time
+import numpy as np
+from sklearn.metrics import confusion_matrix, accuracy_score
+from pystruct.learners import OneSlackSSVM
+from pystruct.datasets import load_snakes
+from pystruct.models import EdgeFeatureGraphCRF
+from plot_snakes import one_hot_colors, prepare_data
+def REPORT(l_Y_GT, lY_Pred, t=None):
+    if t: print "\t( predict DONE IN %.1fs)"%t
+    _flat_GT, _flat_P = (np.hstack([y.ravel() for y in l_Y_GT]),  
+                         np.hstack([y.ravel() for y in lY_Pred]))
+    confmat = confusion_matrix(_flat_GT, _flat_P)
+    print confmat
+    print "\ttrace   =", confmat.trace()
+    print "\tAccuracy= %.3f"%accuracy_score(_flat_GT, _flat_P)    
+print("Please be patient. Learning will take 5-20 minutes.")
+snakes = load_snakes()
+X_train, Y_train = snakes['X_train'], snakes['Y_train']
+X_train = [one_hot_colors(x) for x in X_train]
+Y_train_flat = [y_.ravel() for y_ in Y_train]
+X_train_directions, X_train_edge_features = prepare_data(X_train)
+print "%d picture for training"%len(X_train)
+X_test, Y_test = snakes['X_test'], snakes['Y_test']
+X_test = [one_hot_colors(x) for x in X_test]
+Y_test_flat = [y_.ravel() for y_ in Y_test]
+X_test_directions, X_test_edge_features = prepare_data(X_test)
+print "%d picture for test"%len(X_test)
+print "- TRAINING ONLY WITH DIRECTIONAL EDGE FEATURES -----"
+inference = 'ad3'
+crf = EdgeFeatureGraphCRF(inference_method=inference)
+ssvm = OneSlackSSVM(crf, inference_cache=50, C=.1, tol=.1, max_iter=100,
+                    n_jobs=1)
+t0 = time.time()
+ssvm.fit(X_train_directions, Y_train_flat)
+print("Model EdgeFeatureGraphCRF fitted. %.1fs"%(time.time()-t0))
+Y_GT = np.hstack(Y_test_flat)
+print("- Results using only directional features for edges. %.1fs"%(time.time()-t0))
+t0 = time.time()
+Y_pred = ssvm.predict(X_test_directions)
+REPORT(Y_GT, Y_pred, time.time()-t0)
+print "- Result with binarized graph"
+t0 = time.time()
+Y_pred = ssvm.predict(X_test_directions, [True]*len(X_test_directions))
+REPORT(Y_GT, Y_pred, time.time()-t0)
+def buildConstraints(X, bOne=True):
+    sLogicOp = "XOR" if bOne else "ATMOSTONE"
+    lConstraint = []
+    for (node_features, edges, edge_features) in X:
+        n_nodes = node_features.shape[0]
+        lConstraintPerGraph = [ (sLogicOp, range(n_nodes), i, False) for i in range(1,10) ] #only one 
+        lConstraint.append( lConstraintPerGraph )
+    return lConstraint
+print "- Results of inference under constraints"
+lConstraint = buildConstraints(X_test_directions)
+t0 = time.time()
+Y_pred = ssvm.predict(X_test_directions, lConstraint)
+REPORT(Y_GT, Y_pred, time.time()-t0)
+print "- NOW TRAINING WITH BETTER EDGE FEATURES -----"
+inference = 'qpbo'
+crf = EdgeFeatureGraphCRF(inference_method=inference)
+ssvm = OneSlackSSVM(crf, inference_cache=50, C=.1, tol=.1, switch_to='ad3',
+                    n_jobs=1)
+t0 = time.time()
+ssvm.fit(X_train_edge_features, Y_train_flat)
+print("Model EdgeFeatureGraphCRF fitted. %.1fs"%(time.time()-t0))
+print("- Results using also input features for edges. %.1fs"%(time.time()-t0))
+t0 = time.time()
+Y_pred = ssvm.predict(X_test_edge_features)
+REPORT(Y_GT, Y_pred, time.time()-t0)
+print "- Result with binarized graph"
+t0 = time.time()
+Y_pred = ssvm.predict(X_test_edge_features, [True]*len(X_test_edge_features))
+REPORT(Y_GT, Y_pred, time.time()-t0)
+print "- Results of inference under constraints"
+lConstraint = buildConstraints(X_test_edge_features)
+t0 = time.time()
+Y_pred = ssvm.predict(X_test_edge_features, lConstraint)
+REPORT(Y_GT, Y_pred, time.time()-t0)

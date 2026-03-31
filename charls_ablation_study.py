@@ -1,0 +1,87 @@
+import pandas as pd
+import numpy as np
+import os
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.model_selection import GroupShuffleSplit, GroupKFold, cross_val_score
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import roc_auc_score
+from sklearn.impute import SimpleImputer
+import logging
+
+from utils.charls_feature_lists import get_exclude_cols
+
+logger = logging.getLogger(__name__)
+
+def run_ablation_study(df, consensus_results, output_dir='evaluation_results/ablation_study', target_col='is_comorbidity_next'):
+    """
+    消融实验：对比全量特征 vs 共识特征 (导师加固版)
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    logger.info(">>> 启动消融实验 (Ablation Study)...")
+
+    # 1. 提取共识特征
+    all_selected = [f for sub in consensus_results.values() for f in sub]
+    consensus_features = [f for f in set(all_selected) if all_selected.count(f) >= 2]
+    
+    Y = target_col
+    exclude = get_exclude_cols(df, target_col=Y)
+    
+    num_feats = [c for c in df.columns if c not in exclude and df[c].dtype in [np.float64, np.int64]]
+    
+    # 2. 划分 Train/Test
+    from config import RANDOM_SEED
+    gss = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=RANDOM_SEED)
+    train_idx, test_idx = next(gss.split(df, groups=df['ID']))
+    train_df, test_df = df.iloc[train_idx].copy(), df.iloc[test_idx].copy()
+
+    # 3. 场景定义
+    # [优化] 如果共识为空，选取相关性最高的前 5 个
+    if not consensus_features:
+        logger.warning("共识特征集为空，正在计算相关性以选取最优特征...")
+        # 简单计算相关性
+        temp_df = train_df[num_feats + [Y]].dropna()
+        corrs = temp_df.corr()[Y].abs().sort_values(ascending=False)
+        consensus_features = corrs.index[1:6].tolist() # 排除 Y 本身
+        logger.info(f"选取相关性最高特征: {consensus_features}")
+
+    scenarios = {
+        'Full Model': num_feats,
+        'Consensus Model': [f for f in consensus_features if f in num_feats]
+    }
+
+    results = []
+    for name, feats in scenarios.items():
+        imputer = SimpleImputer(strategy='median')
+        X_train = pd.DataFrame(imputer.fit_transform(train_df[feats]), columns=feats)
+        X_test = pd.DataFrame(imputer.transform(test_df[feats]), columns=feats)
+        y_train, y_test = train_df[Y].astype(int), test_df[Y].astype(int)
+        
+        model = LogisticRegression(max_iter=1000, class_weight='balanced')
+        group_cv = GroupKFold(n_splits=5)
+        # [加固] 显式使用 ID 列
+        cv_scores = cross_val_score(model, X_train, y_train, groups=train_df['ID'].values, cv=group_cv, scoring='roc_auc')
+        
+        model.fit(X_train, y_train)
+        y_prob = model.predict_proba(X_test)[:, 1]
+        auc_test = roc_auc_score(y_test, y_prob)
+        
+        results.append({
+            'Scenario': name, 
+            'AUC_CV': cv_scores.mean(), 
+            'AUC_Test': auc_test, 
+            'Feature_Count': len(feats)
+        })
+        logger.info(f"🏆 {name}: CV AUC={cv_scores.mean():.4f}, Test AUC={auc_test:.4f}")
+
+    # 保存与绘图
+    res_df = pd.DataFrame(results)
+    res_df.to_csv(os.path.join(output_dir, 'ablation_results_final.csv'), index=False, encoding='utf-8-sig')
+    plt.figure(figsize=(10, 6))
+    sns.barplot(x='Scenario', y='AUC_Test', data=res_df, palette='Set2')
+    plt.ylim(0.5, 0.85)
+    plt.title('Ablation Study: Feature Consensus Validation', fontsize=14)
+    plt.savefig(os.path.join(output_dir, 'figS8_ablation_final.png'), dpi=300)
+    plt.close()
+    
+    return res_df

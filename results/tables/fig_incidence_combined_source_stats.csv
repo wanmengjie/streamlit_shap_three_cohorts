@@ -1,0 +1,4 @@
+﻿baseline_group,n_observations,incident_cases,cumulative_incidence_pct,ci95_low_pct,ci95_high_pct,Incidence_Rate_per_1000_PY,Total_Person_Years,Baseline_Cohort_label
+0,8828,366,4.15,3.73,4.56,24.3675,15020.0,Cohort A (healthy baseline)
+1,3123,426,13.64,12.44,14.84,84.4233,5046.0,Cohort B (depression only)
+2,2435,411,16.88,15.39,18.37,107.1149,3837.0,Cohort C (cognitive impairment only)

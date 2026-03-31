@@ -1,0 +1,6 @@
+CLHLS 独立流程：专用特征 + 预测 + 因果机器学习
+全样本 N=3451, 预测 AUC=0.4835
+全样本 ATE(d91)=0.0052 (95% CI: -0.0749, 0.0853)
+Healthy: n=1372, AUC=0.5488, ATE=0.0247
+Depression_only: n=222, AUC=0.6394, ATE=0.0431
+Cognition_only: n=1857, AUC=0.5502, ATE=-0.0226

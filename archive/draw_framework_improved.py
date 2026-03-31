@@ -1,0 +1,138 @@
+# -*- coding: utf-8 -*-
+"""
+绘制高颜值论文概念框架图 (Conceptual Framework)
+适配 npj 系列期刊风格：简洁、扁平化、逻辑清晰
+"""
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+from matplotlib.path import Path
+import matplotlib.lines as mlines
+
+def draw_fancy_box(ax, x, y, width, height, text, color='#EEF5FF', edge_color='#333333', fontsize=10, fontweight='normal', alpha=1.0):
+    """绘制带有圆角和阴影效果的文本框"""
+    # 阴影
+    shadow = patches.FancyBboxPatch((x+0.005, y-0.005), width, height, boxstyle="round,pad=0.02", 
+                                    ec="none", fc='gray', alpha=0.2, zorder=1)
+    ax.add_patch(shadow)
+    
+    # 主框
+    box = patches.FancyBboxPatch((x, y), width, height, boxstyle="round,pad=0.02", 
+                                 ec=edge_color, fc=color, alpha=alpha, linewidth=1.5, zorder=2)
+    ax.add_patch(box)
+    
+    # 文本
+    ax.text(x + width/2, y + height/2, text, ha='center', va='center', 
+            fontsize=fontsize, fontweight=fontweight, color='#333333', zorder=3, linespacing=1.4)
+    return box
+
+def draw_arrow(ax, x1, y1, x2, y2, color='#555555'):
+    """绘制优雅的箭头"""
+    ax.annotate('', xy=(x2, y2), xytext=(x1, y1),
+                arrowprops=dict(arrowstyle='->', color=color, lw=1.5, mutation_scale=15), zorder=1)
+
+def draw_conceptual_framework_v2():
+    fig, ax = plt.subplots(figsize=(12, 14))
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.axis('off')
+    
+    # ==================== 1. Data Source & Cohort Definition (Top) ====================
+    # 顶层标题区
+    ax.text(0.5, 0.98, "Phase 1: Study Design & Cohort Definition", ha='center', fontsize=12, fontweight='bold', color='#2C3E50')
+    
+    # CHARLS Data Box
+    draw_fancy_box(ax, 0.35, 0.92, 0.3, 0.05, "CHARLS Longitudinal Data\n(Waves 1-4, Age ≥ 60)", color='#D6EAF8', fontweight='bold')
+    
+    # Preprocessing Box
+    draw_fancy_box(ax, 0.30, 0.85, 0.4, 0.04, "Preprocessing: MissForest Imputation\nExclusion Criteria (Incident Design)", color='#EBF5FB')
+    draw_arrow(ax, 0.5, 0.92, 0.5, 0.89)
+    
+    # Three Cohorts (核心分层)
+    y_cohort = 0.76
+    w_cohort = 0.22
+    h_cohort = 0.06
+    
+    # Cohort A
+    draw_fancy_box(ax, 0.05, y_cohort, w_cohort, h_cohort, "Cohort A\nHealthy Baseline\n(n=8,828)", color='#D5F5E3', edge_color='#2ECC71')
+    # Cohort B
+    draw_fancy_box(ax, 0.39, y_cohort, w_cohort, h_cohort, "Cohort B\nDepression Only\n(n=3,123)", color='#FADBD8', edge_color='#E74C3C')
+    # Cohort C
+    draw_fancy_box(ax, 0.73, y_cohort, w_cohort, h_cohort, "Cohort C\nCognition Impaired Only\n(n=2,435)", color='#D6EAF8', edge_color='#3498DB')
+    
+    # Arrows to cohorts
+    draw_arrow(ax, 0.5, 0.85, 0.16, 0.82)
+    draw_arrow(ax, 0.5, 0.85, 0.5, 0.82)
+    draw_arrow(ax, 0.5, 0.85, 0.84, 0.82)
+    
+    # ==================== 2. Methodological Engine (Middle) ====================
+    ax.text(0.5, 0.70, "Phase 2: Causal Machine Learning Framework", ha='center', fontsize=12, fontweight='bold', color='#2C3E50')
+    
+    # 大背景框 (Engine)
+    bg_rect = patches.FancyBboxPatch((0.02, 0.38), 0.96, 0.30, boxstyle="round,pad=0.02", ec='#BDC3C7', fc='white', linestyle='--', lw=1, zorder=0)
+    ax.add_patch(bg_rect)
+    
+    # --- 左侧：预测 ---
+    ax.text(0.25, 0.65, "Step 1: Prediction & Attribution", ha='center', fontsize=11, fontweight='bold', color='#7F8C8D')
+    
+    draw_fancy_box(ax, 0.08, 0.58, 0.34, 0.05, "Model Competition (15 Models)\n(MLP, LR, Calibrated, etc.)", color='#FCF3CF')
+    draw_arrow(ax, 0.25, 0.58, 0.25, 0.55)
+    
+    draw_fancy_box(ax, 0.08, 0.50, 0.34, 0.05, "Champion Selection Strategy\n(Balance AUC & Recall > 0.05)", color='#FCF3CF')
+    draw_arrow(ax, 0.25, 0.50, 0.25, 0.47)
+    
+    draw_fancy_box(ax, 0.08, 0.42, 0.34, 0.05, "SHAP Interpretability\n(Identify Modifiable Factors)", color='#F9E79F', fontweight='bold')
+    
+    # --- 右侧：因果 ---
+    ax.text(0.75, 0.65, "Step 2: Causal Inference", ha='center', fontsize=11, fontweight='bold', color='#7F8C8D')
+    
+    draw_fancy_box(ax, 0.58, 0.58, 0.34, 0.05, "Causal Forest DML\n(Estimate ATE & CATE)", color='#E8DAEF')
+    draw_arrow(ax, 0.75, 0.58, 0.75, 0.55)
+    
+    draw_fancy_box(ax, 0.58, 0.50, 0.34, 0.05, "Robustness Checks\n(PSM, PSW, Sensitivity Analysis)", color='#E8DAEF')
+    draw_arrow(ax, 0.75, 0.50, 0.75, 0.47)
+    
+    draw_fancy_box(ax, 0.58, 0.42, 0.34, 0.05, "Heterogeneity Analysis (HTE)\n(Subgroups: Age, Urban/Rural)", color='#D2B4DE', fontweight='bold')
+
+    # 连接箭头：从 SHAP 指向 Causal (关键逻辑)
+    ax.annotate('Validate\nTarget', xy=(0.58, 0.445), xytext=(0.42, 0.445),
+                arrowprops=dict(arrowstyle='->', color='#E67E22', lw=2, mutation_scale=15), 
+                fontsize=9, color='#E67E22', ha='center', zorder=5)
+    
+    # 从 Cohorts 指向 Engine
+    draw_arrow(ax, 0.16, 0.76, 0.25, 0.68) # A -> Pred
+    draw_arrow(ax, 0.50, 0.76, 0.25, 0.68) # B -> Pred
+    draw_arrow(ax, 0.84, 0.76, 0.75, 0.68) # C -> Causal (示意)
+    # 实际上是三组都进，这里简化画法，用三个箭头汇聚
+    
+    # ==================== 3. Clinical Translation (Bottom) ====================
+    ax.text(0.5, 0.34, "Phase 3: Clinical Translation & Decision Support", ha='center', fontsize=12, fontweight='bold', color='#2C3E50')
+    
+    # DCA Box
+    draw_fancy_box(ax, 0.20, 0.26, 0.25, 0.05, "Decision Curve Analysis\n(Clinical Utility)", color='#A3E4D7')
+    
+    # External Validation Box
+    draw_fancy_box(ax, 0.55, 0.26, 0.25, 0.05, "External Validation\n(Temporal & Regional)", color='#A3E4D7')
+    
+    draw_arrow(ax, 0.25, 0.38, 0.32, 0.31)
+    draw_arrow(ax, 0.75, 0.38, 0.68, 0.31)
+    
+    # ==================== 4. Outcome (Footer) ====================
+    # 最终结论框
+    draw_fancy_box(ax, 0.1, 0.08, 0.8, 0.12, 
+                   "KEY FINDINGS & IMPLICATIONS\n\n"
+                   "1. Heterogeneity: Disease trajectories differ significantly by baseline status.\n"
+                   "2. Prediction: MLP/LR offer robust screening tools (AUC 0.65-0.75).\n"
+                   "3. Intervention: Exercise shows significant protective effect in Depression-only group (PSW ATE=-0.029),\n"
+                   "   but potential reverse causality in Cognition-impaired group.", 
+                   color='#F4F6F7', edge_color='#2C3E50', fontsize=10)
+    
+    draw_arrow(ax, 0.32, 0.26, 0.5, 0.20)
+    draw_arrow(ax, 0.68, 0.26, 0.5, 0.20)
+
+    # 保存
+    plt.tight_layout()
+    plt.savefig('LIU_JUE_STRATEGIC_SUMMARY/fig_conceptual_framework_final.png', dpi=300, bbox_inches='tight')
+    print("Framework figure saved to LIU_JUE_STRATEGIC_SUMMARY/fig_conceptual_framework_final.png")
+
+if __name__ == "__main__":
+    draw_conceptual_framework_v2()

@@ -1,0 +1,32 @@
+# generate_fig_s1_v2.py (Original: 57 lines, Cleaned: 31 lines)
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import os
+def generate_scientific_fig_s1(data_path='preprocessed_data/CHARLS_unscaled_for_table1.csv', output_dir='evaluation_results/missing_audit'):
+    os.makedirs(output_dir, exist_ok=True)
+    if not os.path.exists(data_path):
+        df_raw = pd.read_csv('CHARLS.csv')
+    else:
+        df_raw = pd.read_csv(data_path)
+    initial_features = [c for c in df_raw.columns if c not in ['ID', 'is_comorbidity_next', 'wave', 'province', 'baseline_group', 'is_fall_next']]
+    df_initial = df_raw[initial_features]
+    missing_data = df_initial.isnull().mean().sort_values(ascending=False)
+    missing_data = missing_data[missing_data > 0]
+    missing_data = missing_data.head(30)
+    plt.figure(figsize=(12, 10))
+    sns.barplot(x=missing_data.values, y=missing_data.index, palette='Blues_r')
+    for i, v in enumerate(missing_data.values):
+        plt.text(v + 0.002, i, f'{v:.2%}', va='center', fontsize=10, color='darkblue')
+    plt.title('Figure S1. Missing Data Pattern of 51 Initial Selected Variables', fontsize=14, fontweight='bold', pad=20)
+    plt.xlabel('Proportion of Missingness', fontsize=12)
+    plt.ylabel('Clinical & Demographic Variables', fontsize=12)
+    plt.xlim(0, max(missing_data.values) + 0.05)
+    plt.grid(axis='x', linestyle='--', alpha=0.5)
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, 'figS1_missing_ratios_final.png'), dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"✅ Figure S1 已重新生成，精准对标 51 个初始变量。位置: {output_dir}")
+if __name__ == "__main__":
+    generate_scientific_fig_s1()

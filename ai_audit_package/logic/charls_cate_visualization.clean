@@ -1,0 +1,140 @@
+# charls_cate_visualization.py (Original: 201 lines, Cleaned: 139 lines)
+import pandas as pd
+import numpy as np
+import os
+import logging
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
+from econml.dml import CausalForestDML
+import shap
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+def run_cate_visualization(df, treatment_col='is_depression', output_dir='evaluation_results/cate_analysis'):
+    logger.info(f">>> 启动 CATE 异质性效应深度分析 (Treatment: {treatment_col})...")
+    os.makedirs(output_dir, exist_ok=True)
+    T = treatment_col
+    Y = 'is_comorbidity_next'
+    from charls_feature_lists import get_exclude_cols
+    exclude_cols = get_exclude_cols(df, target_col=Y, treatment_col=T)
+    X_cols = [col for col in df.columns if col not in exclude_cols and df[col].dtype in [np.float64, np.int64]]
+    other_core = 'is_cognitive_impairment' if T == 'is_depression' else 'is_depression'
+    if other_core in df.columns and other_core not in X_cols:
+        X_cols.append(other_core)
+    from sklearn.impute import SimpleImputer
+    from sklearn.preprocessing import StandardScaler
+    X = df[X_cols]
+    imputer = SimpleImputer(strategy='median')
+    X_filled = pd.DataFrame(imputer.fit_transform(X), columns=X.columns)
+    continuous_cols = ['age', 'bmi', 'mwaist', 'puff', 'systo', 'diasto', 'pulse', 'lgrip', 'rgrip', 'income_total']
+    actual_cont = [c for c in continuous_cols if c in X_filled.columns]
+    X_scaled = X_filled.copy()
+    if actual_cont:
+        X_scaled[actual_cont] = StandardScaler().fit_transform(X_filled[actual_cont])
+    X_to_fit = X_scaled
+    T_series = df[T].astype(int)
+    Y_series = df[Y].astype(float)
+    logger.info("正在拟合因果森林以提取异质性效应...")
+    dml_causal_forest = CausalForestDML(
+        model_y=RandomForestRegressor(n_estimators=100, max_depth=5, random_state=500),
+        model_t=RandomForestClassifier(n_estimators=100, max_depth=5, random_state=500),
+        discrete_treatment=True,
+        cv=3,
+        random_state=500
+    )
+    dml_causal_forest.fit(Y=Y_series, T=T_series, X=X_to_fit, W=None)
+    cate_estimates = dml_causal_forest.effect(X_to_fit)
+    plt.figure(figsize=(10, 6))
+    sns.histplot(cate_estimates, kde=True, color='teal', bins=30)
+    plt.axvline(x=cate_estimates.mean(), color='red', linestyle='--', label=f'ATE: {cate_estimates.mean():.4f}')
+    plt.title(f'Distribution of CATE (Impact of {T} on Comorbidity)')
+    plt.xlabel(f'Estimated Treatment Effect (Impact of {T})')
+    plt.ylabel('Frequency')
+    plt.legend()
+    plt.grid(alpha=0.3)
+    plt.savefig(os.path.join(output_dir, 'fig_cate_distribution.png'), dpi=300)
+    plt.close()
+    logger.info("正在计算 CATE 的 SHAP 值 (全样本)...")
+    X_shap = X_to_fit
+    shap_results = dml_causal_forest.shap_values(X_shap)
+    if isinstance(shap_results, dict):
+        first_val = list(shap_results.values())[0]
+        if isinstance(first_val, dict):
+            s_vals_obj = list(first_val.values())[0]
+        else:
+            s_vals_obj = first_val
+    else:
+        s_vals_obj = shap_results
+    logger.info(f"SHAP 返回类型: {type(s_vals_obj)}")
+    plt.figure(figsize=(12, 8))
+    try:
+        shap.summary_plot(s_vals_obj, X_shap, show=False)
+    except Exception as e:
+        logger.warning(f"直接绘制 SHAP 失败 ({e})，尝试提取 values 矩阵...")
+        if hasattr(s_vals_obj, 'values'):
+            shap.summary_plot(s_vals_obj.values, X_shap, show=False)
+        else:
+            shap.summary_plot(np.array(s_vals_obj), X_shap, show=False)
+    plt.title(f'Drivers of Heterogeneity: Which features determine the impact of {T}?')
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, 'fig_cate_shap_summary.png'), dpi=300)
+    plt.close()
+    if 's_vals_obj' in locals():
+        if hasattr(s_vals_obj, 'values'):
+            s_vals_matrix = s_vals_obj.values
+        else:
+            s_vals_matrix = np.array(s_vals_obj)
+        shap_cate_df = pd.DataFrame(s_vals_matrix, columns=X_cols)
+        shap_cate_df.to_csv(os.path.join(output_dir, 'cate_shap_values.csv'), index=False)
+    if hasattr(s_vals_obj, 'values'):
+        vals = np.abs(s_vals_obj.values).mean(0)
+    elif hasattr(s_vals_obj, 'shape'):
+        vals = np.abs(s_vals_obj).mean(0)
+    else:
+        vals = np.abs(np.array(s_vals_obj)).mean(0)
+    top_indices = np.argsort(vals)[-2:][::-1]
+    top_features = [X_cols[i] for i in top_indices]
+    for feat in top_features:
+        plt.figure(figsize=(10, 6))
+        plt.scatter(X[feat], cate_estimates, alpha=0.4, color='purple', s=10)
+        sns.regplot(x=X[feat], y=cate_estimates, scatter=False, color='orange', lowess=True)
+        plt.title(f'Heterogeneity Analysis: Impact vs {feat}')
+        plt.xlabel(feat)
+        plt.ylabel('Estimated Treatment Effect (CATE)')
+        plt.grid(alpha=0.2)
+        plt.savefig(os.path.join(output_dir, f'fig_cate_vs_{feat}.png'), dpi=300)
+        plt.close()
+    df_cate = X.copy()
+    df_cate['cate'] = cate_estimates
+    df_cate['sensitivity_group'] = pd.qcut(df_cate['cate'], q=3, labels=['Low Impact', 'Medium Impact', 'High Impact'])
+    group_stats = df_cate.groupby('sensitivity_group')[X_cols].mean().T
+    group_stats.to_csv(os.path.join(output_dir, 'cate_group_characteristics.csv'), index=False, encoding='utf-8-sig')
+    logger.info("正在生成 CATE 交互热图...")
+    top_4_feats = [X_cols[i] for i in np.argsort(vals)[-4:][::-1]]
+    inter_data = []
+    for f1 in top_4_feats:
+        row = []
+        for f2 in top_4_feats:
+            if f1 == f2:
+                row.append(0)
+            else:
+                f1_med = X[f1].median()
+                f2_med = X[f2].median()
+                mask = (X[f1] > f1_med) & (X[f2] > f2_med)
+                if mask.sum() > 10:
+                    row.append(cate_estimates[mask].mean() - cate_estimates.mean())
+                else:
+                    row.append(0)
+        inter_data.append(row)
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(inter_data, annot=True, xticklabels=top_4_feats, yticklabels=top_4_feats, cmap='RdBu_r', center=0)
+    plt.title('CATE Interaction Heatmap: Synergistic Effects of Risk Factors')
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, 'fig3_cate_interaction_heatmap.png'), dpi=300)
+    plt.close()
+    logger.info(f"CATE 分析完成。图片已保存至: {output_dir}")
+    return cate_estimates
+if __name__ == "__main__":
+    if os.path.exists('preprocessed_data/CHARLS_final_preprocessed.csv'):
+        df = pd.read_csv('preprocessed_data/CHARLS_final_preprocessed.csv')
+        run_cate_visualization(df)

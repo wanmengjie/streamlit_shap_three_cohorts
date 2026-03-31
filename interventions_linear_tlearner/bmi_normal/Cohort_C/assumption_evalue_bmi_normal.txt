@@ -1,0 +1,6 @@
+=== E-Value: 未测量混杂敏感性 (Unmeasured Confounding) ===
+Treatment: bmi_normal
+ATE: 0.2906, 95%% CI: (0.1309, 0.4932)
+E-Value (point): 4.99
+E-Value (conservative, from 95%% CI): 3.00
+Interpretation: An unmeasured confounder would need RR>=E with both T and Y to explain away the effect.

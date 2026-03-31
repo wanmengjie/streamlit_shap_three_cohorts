@@ -1,0 +1,167 @@
+# charls_imputation_audit.py (Original: 208 lines, Cleaned: 166 lines)
+import pandas as pd
+import numpy as np
+import os
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.impute import SimpleImputer
+from sklearn.metrics import roc_auc_score
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import train_test_split
+import logging
+logger = logging.getLogger(__name__)
+def run_imputation_sensitivity(output_dir='evaluation_results/missing_audit'):
+    os.makedirs(output_dir, exist_ok=True)
+    df = pd.read_csv('CHARLS.csv')
+    target = 'cesd10'
+    if target not in df.columns:
+        logger.warning(f"缺失目标变量 {target}，跳过插补审计")
+        return None
+    df = df.dropna(subset=[target])
+    y = (df[target] >= 10).astype(int)
+    X = df[['age', 'gender', 'edu']].copy()
+    methods = ['mean', 'median', 'most_frequent']
+    auc_results = []
+    for method in methods:
+        imputer = SimpleImputer(strategy=method)
+        X_imp = imputer.fit_transform(X)
+        X_train, X_test, y_train, y_test = train_test_split(X_imp, y, test_size=0.2, random_state=500)
+        lr = LogisticRegression()
+        lr.fit(X_train, y_train)
+        y_prob = lr.predict_proba(X_test)[:, 1]
+        auc = roc_auc_score(y_test, y_prob)
+        auc_results.append({'Method': method, 'AUC': auc})
+    auc_df = pd.DataFrame(auc_results)
+    plt.figure(figsize=(8, 6))
+    sns.barplot(x='Method', y='AUC', data=auc_df, hue='Method', palette='Set2', legend=False)
+    plt.ylim(0.5, 0.7)
+    plt.title('Imputation Sensitivity Analysis (Figure S3)')
+    plt.savefig(os.path.join(output_dir, 'figS3_imputation_sensitivity.png'), dpi=300)
+    plt.close()
+    logger.info(f"✅ 插补敏感性分析已完成：{output_dir}")
+    return auc_df
+def _run_single_imputation_auc(X_train, X_test, y_train, y_test, imp, method_label, random_state=500):
+    from sklearn.ensemble import RandomForestClassifier
+    from sklearn.metrics import roc_auc_score
+    try:
+        X_tr = imp.fit_transform(X_train)
+        X_te = imp.transform(X_test)
+        if len(np.unique(y_test)) < 2:
+            return np.nan
+        rf = RandomForestClassifier(n_estimators=100, max_depth=5, random_state=random_state)
+        rf.fit(X_tr, y_train)
+        return roc_auc_score(y_test, rf.predict_proba(X_te)[:, 1])
+    except Exception:
+        return np.nan
+def run_imputation_sensitivity_preprocessed(df, output_dir, target_col='is_comorbidity_next', n_bootstrap=50):
+    import matplotlib
+    matplotlib.use('Agg')
+    os.makedirs(output_dir, exist_ok=True)
+    from sklearn.model_selection import train_test_split
+    from charls_feature_lists import get_exclude_cols
+    if target_col not in df.columns:
+        logger.warning(f"目标列 {target_col} 不存在，跳过插补敏感性。")
+        return None
+    df = df.dropna(subset=[target_col]).copy()
+    exclude = get_exclude_cols(df, target_col=target_col)
+    X_cols = [c for c in df.columns if c not in exclude and df[c].dtype in [np.float64, np.int64]]
+    X = df[X_cols].copy()
+    y = df[target_col].astype(int)
+    if X.shape[1] < 3 or len(X) < 50:
+        logger.warning("插补敏感性：特征或样本过少，跳过。")
+        return None
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=500)
+    n_train, n_test = len(X_train), len(X_test)
+    results = []
+    def _add_result(label, method_cn, auc_list):
+        valid = [a for a in auc_list if not (isinstance(a, float) and np.isnan(a))]
+        if not valid:
+            results.append({'Method': label, 'Method_CN': method_cn, 'AUC': np.nan, 'AUC_lb': np.nan, 'AUC_ub': np.nan})
+            return
+        auc_arr = np.array(valid)
+        mean_auc = np.mean(auc_arr)
+        if len(auc_arr) < 10:
+            ci_l = ci_u = mean_auc
+        else:
+            ci_l = np.percentile(auc_arr, 2.5)
+            ci_u = np.percentile(auc_arr, 97.5)
+        results.append({'Method': label, 'Method_CN': method_cn, 'AUC': mean_auc, 'AUC_lb': ci_l, 'AUC_ub': ci_u})
+    for method, label in [('median', 'Median'), ('mean', 'Mean'), ('most_frequent', 'Mode')]:
+        aucs = []
+        for b in range(n_bootstrap):
+            idx = np.random.RandomState(b).choice(len(X_train), size=len(X_train), replace=True)
+            X_b, y_b = X_train.iloc[idx], y_train.iloc[idx]
+            imp = SimpleImputer(strategy=method)
+            aucs.append(_run_single_imputation_auc(X_b, X_test, y_b, y_test, imp, label, random_state=500 + b))
+        _add_result(label, {'Median': '中位数', 'Mean': '均数', 'Mode': '众数'}[label], aucs)
+    try:
+        from sklearn.impute import KNNImputer
+        aucs = []
+        for b in range(n_bootstrap):
+            idx = np.random.RandomState(b).choice(len(X_train), size=len(X_train), replace=True)
+            X_b, y_b = X_train.iloc[idx], y_train.iloc[idx]
+            imp = KNNImputer(n_neighbors=5, weights='distance')
+            aucs.append(_run_single_imputation_auc(X_b, X_test, y_b, y_test, imp, 'KNN', random_state=500 + b))
+        _add_result('KNN', 'K近邻', aucs)
+    except Exception as e:
+        logger.warning(f"KNN 插补跳过: {e}")
+    try:
+        from sklearn.experimental import enable_iterative_imputer
+        from sklearn.impute import IterativeImputer
+        aucs = []
+        for b in range(n_bootstrap):
+            idx = np.random.RandomState(b).choice(len(X_train), size=len(X_train), replace=True)
+            X_b, y_b = X_train.iloc[idx], y_train.iloc[idx]
+            imp = IterativeImputer(max_iter=5, random_state=500 + b)
+            aucs.append(_run_single_imputation_auc(X_b, X_test, y_b, y_test, imp, 'MICE', random_state=500 + b))
+        _add_result('MICE', '多重插补', aucs)
+    except Exception as e:
+        logger.warning(f"MICE 插补跳过: {e}")
+    res_df = pd.DataFrame(results)
+    if len(res_df) == 0:
+        logger.warning("插补敏感性：无有效结果，跳过 CSV 与图表。")
+        return None
+    out_csv = os.path.join(output_dir, 'imputation_sensitivity_results.csv')
+    res_df.to_csv(out_csv, index=False, encoding='utf-8-sig')
+    logger.info(f"✅ 插补敏感性结果已保存: {out_csv}")
+    fig, ax = plt.subplots(figsize=(12, 6))
+    methods_order = res_df['Method'].tolist()
+    colors = plt.cm.Set2(np.linspace(0, 1, len(methods_order)))
+    median_idx = methods_order.index('Median') if 'Median' in methods_order else -1
+    if median_idx >= 0:
+        colors[median_idx] = (0.2, 0.6, 0.4, 1.0)  # 主分析方法高亮
+    auc_vals = res_df['AUC'].fillna(0.5).values
+    lb_vals = res_df['AUC_lb'].fillna(res_df['AUC']).values
+    ub_vals = res_df['AUC_ub'].fillna(res_df['AUC']).values
+    x_pos = np.arange(len(res_df))
+    bars = ax.bar(x_pos, auc_vals, color=colors, edgecolor='black', linewidth=0.8)
+    ax.errorbar(x_pos, auc_vals, yerr=[auc_vals - lb_vals, ub_vals - auc_vals],
+                fmt='none', color='black', capsize=5, capthick=1.5)
+    if 'Median' in res_df['Method'].values:
+        med_row = res_df.loc[res_df['Method'] == 'Median', 'AUC'].values
+        if len(med_row) > 0 and not np.isnan(med_row[0]):
+            med_auc = med_row[0]
+            ax.axhline(y=med_auc, color='gray', linestyle='--', linewidth=1.5, alpha=0.7, label=f'Main analysis (Median, AUC={med_auc:.3f})')
+    for i, (_, row) in enumerate(res_df.iterrows()):
+        a, lb, ub = row['AUC'], row['AUC_lb'], row['AUC_ub']
+        lb = lb if not (isinstance(lb, float) and np.isnan(lb)) else a
+        ub = ub if not (isinstance(ub, float) and np.isnan(ub)) else a
+        txt = f"{a:.3f}\n({lb:.3f}–{ub:.3f})" if not np.isnan(a) else "N/A"
+        ax.text(i, (ub if not np.isnan(ub) else a) + 0.02, txt, ha='center', va='bottom', fontsize=9, fontweight='bold')
+    ax.set_xticks(x_pos)
+    ax.set_xticklabels([f"{m}\n({c})" for m, c in zip(res_df['Method'], res_df['Method_CN'])], fontsize=10)
+    ax.set_ylabel('AUC (95% CI)', fontsize=12)
+    ax.set_xlabel('Imputation method', fontsize=12)
+    y_min = np.nanmin(np.r_[res_df['AUC_lb'].values, res_df['AUC'].values])
+    y_max = np.nanmax(np.r_[res_df['AUC_ub'].values, res_df['AUC'].values])
+    ax.set_ylim(max(0.45, y_min - 0.08), min(1.0, y_max + 0.15))
+    ax.set_title('Figure S3. Imputation Sensitivity Analysis\n'
+                 f'Five methods compared by AUC (Bootstrap n={n_bootstrap}); RF classifier; N_train={n_train}, N_test={n_test}',
+                 fontsize=12)
+    ax.grid(axis='y', alpha=0.3)
+    ax.legend(loc='lower right', fontsize=9)
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, 'figS3_imputation_sensitivity.png'), dpi=300, bbox_inches='tight')
+    plt.close()
+    logger.info(f"✅ 插补敏感性（主目标）已完成：{output_dir}")
+    return res_df

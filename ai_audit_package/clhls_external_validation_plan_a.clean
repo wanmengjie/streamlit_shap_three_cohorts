@@ -1,0 +1,142 @@
+# clhls_external_validation_plan_a.py (Original: 173 lines, Cleaned: 141 lines)
+# -*- coding: utf-8 -*-
+import os
+import numpy as np
+import pandas as pd
+from sklearn.model_selection import GroupKFold, cross_val_predict
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import roc_auc_score
+from sklearn.impute import SimpleImputer
+from clhls_load_utils import load_clhls_file, find_clhls_data
+DEPRESSION_BASE = "b29"
+COGNITION_COLS = ["g15m1", "g15m2"]
+COGNITION_IMPAIRED_THRESHOLD = 3  # 回忆题之和≤3 视为受损，可按 codebook 调整
+EXERCISE_BASE = "d91"
+AGE_BASE = "trueage"      # 2008 无后缀；2014/2018 有 _14/_18（2011 无 trueage_11）
+SEX_COL = "a1"           # 全波共用
+RESIDENCE_BASE = "residenc"
+PROV_COL = "prov"
+ID_COL = "id"
+WAVE_COL_MAP = {
+    2008: {"yearin": "yearin", "trueage": "trueage", "residenc": "residenc", "d91": "d91", "b29": None, "g15m1": "g15m1", "g15m2": "g15m2"},
+    2011: {"yearin": "yearin_11", "trueage": "trueage", "residenc": "residenc", "d91": "d91_11", "b29": "b29_11", "g15m1": "g15m1_11", "g15m2": "g15m2_11"},
+    2014: {"yearin": "yearin_14", "trueage": "trueage_14", "residenc": "residenc_14", "d91": "d91_14", "b29": "b29_14", "g15m1": "g15m1_14", "g15m2": "g15m2_14"},
+    2018: {"yearin": "yearin_18", "trueage": "trueage_18", "residenc": "residenc_18", "d91": "d91_18", "b29": None, "g15m1": "g15m1_18", "g15m2": "g15m2_18"},
+}
+AGE_COL = "trueage"
+RESIDENCE_COL = "residenc"
+EXERCISE_COL = "d91"
+DEPRESSION_COL = DEPRESSION_BASE
+def clhls_wide_to_long(df):
+    rows = []
+    for wave, col_map in WAVE_COL_MAP.items():
+        year_col = col_map["yearin"]
+        if year_col not in df.columns:
+            continue
+        sub = df[[ID_COL, PROV_COL, SEX_COL]].copy()
+        sub["wave"] = wave
+        sub[AGE_COL] = df[col_map["trueage"]] if col_map["trueage"] in df.columns else np.nan
+        sub[RESIDENCE_COL] = df[col_map["residenc"]] if col_map["residenc"] in df.columns else np.nan
+        sub[EXERCISE_COL] = df[col_map["d91"]] if col_map["d91"] in df.columns else np.nan
+        sub[DEPRESSION_BASE] = df[col_map["b29"]] if col_map["b29"] and col_map["b29"] in df.columns else np.nan
+        for c in COGNITION_COLS:
+            if col_map.get(c) and col_map[c] in df.columns:
+                sub[c] = df[col_map[c]]
+            elif c not in sub.columns:
+                sub[c] = np.nan
+        sub = sub.dropna(subset=[ID_COL])
+        rows.append(sub)
+    out = pd.concat(rows, ignore_index=True)
+    out = out.dropna(subset=["wave"])
+    return out
+def define_outcome_and_cohort(df):
+    df = df.copy()
+    if DEPRESSION_COL not in df.columns:
+        df[DEPRESSION_COL] = np.nan
+    dep = pd.to_numeric(df[DEPRESSION_COL], errors="coerce")
+    df["is_depression"] = (dep == 1).astype(int)
+    df.loc[dep.isna() | dep.isin([-9, -7, 8, 9]), "is_depression"] = np.nan
+    cog_cols = [c for c in COGNITION_COLS if c in df.columns]
+    if cog_cols:
+        cog = df[cog_cols].apply(pd.to_numeric, errors="coerce")
+        cog = cog.replace(-9, np.nan)
+        cog = cog.sum(axis=1)
+        df["is_cognitive_impairment"] = (cog <= COGNITION_IMPAIRED_THRESHOLD).astype(int)
+        df.loc[cog.isna(), "is_cognitive_impairment"] = np.nan
+    else:
+        df["is_cognitive_impairment"] = np.nan
+    df["is_comorbidity"] = ((df["is_depression"] == 1) & (df["is_cognitive_impairment"] == 1)).astype(int)
+    df = df.sort_values([ID_COL, "wave"])
+    df["_next_wave"] = df.groupby(ID_COL)["wave"].shift(-1)
+    df["_next_dep"] = df.groupby(ID_COL)["is_depression"].shift(-1)
+    df["_next_cog"] = df.groupby(ID_COL)["is_cognitive_impairment"].shift(-1)
+    valid_next = (
+        ((df["wave"] == 2008) & (df["_next_wave"] == 2011)) |
+        ((df["wave"] == 2011) & (df["_next_wave"] == 2014)) |
+        ((df["wave"] == 2014) & (df["_next_wave"] == 2018))
+    )
+    n_valid = valid_next.sum()
+    df = df[valid_next].copy()
+    df["is_comorbidity_next"] = ((df["_next_dep"] == 1) & (df["_next_cog"] == 1)).astype(float)
+    df.loc[df["_next_dep"].isna() | df["_next_cog"].isna(), "is_comorbidity_next"] = np.nan
+    df = df.drop(columns=["_next_wave", "_next_dep", "_next_cog"], errors="ignore")
+    df["had_comorbidity_before"] = df.groupby(ID_COL)["is_comorbidity"].transform(
+        lambda x: x.shift(1).fillna(0).cummax()
+    ).astype(int)
+    df = df[df["is_depression"].notna() & df["is_cognitive_impairment"].notna()]
+    df = df[(df["is_comorbidity"] == 0) & (df["had_comorbidity_before"] == 0)]
+    df = df.dropna(subset=["is_comorbidity_next"])
+    df["baseline_group"] = 0
+    df.loc[(df["is_depression"] == 1) & (df["is_cognitive_impairment"] == 0), "baseline_group"] = 1
+    df.loc[(df["is_depression"] == 0) & (df["is_cognitive_impairment"] == 1), "baseline_group"] = 2
+    return df
+def run_plan_a(clhls_path=None, output_dir="CLHLS_validation_plan_a"):
+    if clhls_path is None:
+        path, _ = find_clhls_data("CLHLS")
+        if path is None:
+            raise FileNotFoundError("未找到 CLHLS 下 .dta/.sav 文件")
+        clhls_path = path
+    df = load_clhls_file(clhls_path)
+    has_wave = "wave" in df.columns
+    has_suffix = any(("_11" in c or "_14" in c or "_18" in c) for c in df.columns)
+    if not has_wave and has_suffix:
+        df = clhls_wide_to_long(df)
+        if df is None:
+            raise ValueError("CLHLS 转长表失败，请检查波次列名")
+        print(f"宽表转长表后: {len(df)} 行, wave 分布: {df['wave'].value_counts().sort_index().to_dict()}")
+    elif "wave" not in df.columns:
+        df = df.copy()
+        df["wave"] = df["yearin"] if "yearin" in df.columns else 2008
+    df = define_outcome_and_cohort(df)
+    if len(df) == 0:
+        print("警告：定义结局与队列后样本量为 0，请检查抑郁/认知变量与编码（如 b29、g15m1/g15m2）。")
+        return
+    feature_cols = [AGE_COL, SEX_COL, RESIDENCE_COL, PROV_COL]
+    if EXERCISE_COL in df.columns:
+        feature_cols.append(EXERCISE_COL)
+    feature_cols = [c for c in feature_cols if c in df.columns]
+    X = df[feature_cols].copy()
+    for c in X.columns:
+        X[c] = pd.to_numeric(X[c], errors="coerce")
+    X = SimpleImputer(strategy="median").fit_transform(X)
+    y = df["is_comorbidity_next"].astype(int).values
+    groups = df[ID_COL].astype(str).values
+    if len(np.unique(y)) < 2:
+        print("警告：结局仅一类，无法算 AUC。请检查抑郁/认知变量与定义。")
+        return
+    cv = GroupKFold(n_splits=5)
+    model = LogisticRegression(max_iter=2000, class_weight="balanced", random_state=500)
+    y_prob = cross_val_predict(model, X, y, groups=groups, cv=cv, method="predict_proba")[:, 1]
+    auc = roc_auc_score(y, y_prob)
+    os.makedirs(output_dir, exist_ok=True)
+    pd.DataFrame({"y_true": y, "y_prob": y_prob}).to_csv(
+        os.path.join(output_dir, "clhls_plan_a_predictions.csv"), index=False
+    )
+    with open(os.path.join(output_dir, "clhls_plan_a_result.txt"), "w", encoding="utf-8") as f:
+        f.write(f"CLHLS 方案 A（简化特征概念复制）\n")
+        f.write(f"Features: {feature_cols}\n")
+        f.write(f"N: {len(y)}\n")
+        f.write(f"AUC: {auc:.4f}\n")
+    print(f"方案 A 完成. AUC={auc:.4f}, N={len(y)}, 结果见 {output_dir}")
+if __name__ == "__main__":
+    run_plan_a()

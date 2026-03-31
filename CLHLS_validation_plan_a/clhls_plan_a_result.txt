@@ -1,0 +1,4 @@
+CLHLS 方案 A（简化特征概念复制）
+Features: ['trueage', 'a1', 'residenc', 'prov', 'd91']
+N: 3452
+AUC: 0.5083

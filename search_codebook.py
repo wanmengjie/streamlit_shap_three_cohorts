@@ -1,0 +1,51 @@
+# -*- coding: utf-8 -*-
+"""在 CLHLS codebook 提取文本中搜索认知、抑郁、运动等变量描述。"""
+import re
+
+with open("CLHLS_codebook_extract.txt", "r", encoding="utf-8") as f:
+    text = f.read()
+
+# 按常见分隔拆成片段（句号、Variable、变量名模式等），便于定位
+chunks = re.split(r'(?<=\.)\s+|\bVariable\s+|\bvariable\s+|\bCode\s+', text)
+# 也按长度适中的片段切（约 200–800 字符）
+if len(chunks) < 10:
+    chunks = [text[i:i+500] for i in range(0, min(len(text), 600000), 400)]
+
+keywords = [
+    "MMSE", "cognitive", "cognition", "mental", "a53", "ra53",
+    "CES-D", "depress", "抑郁",
+    "exercise", "physical activity", "锻炼", "运动", "sport",
+    "trueage", "age", "a1", "gender", "sex", "residenc", "urban", "rural",
+    "id ", " prov", "yearin"
+]
+found = {}
+for kw in keywords:
+    low = text.lower()
+    kw_low = kw.lower()
+    pos = 0
+    snippets = []
+    while len(snippets) < 5:
+        i = low.find(kw_low, pos)
+        if i == -1:
+            break
+        start = max(0, i - 80)
+        end = min(len(text), i + 200)
+        snip = text[start:end].replace("\n", " ")
+        snip = re.sub(r"\s+", " ", snip).strip()
+        if snip and snip not in snippets:
+            snippets.append(snip[:350])
+        pos = i + 1
+    if snippets:
+        found[kw] = snippets
+
+out = "CLHLS_codebook_search_results.txt"
+with open(out, "w", encoding="utf-8") as f:
+    for kw in keywords:
+        if kw in found:
+            f.write("\n=== " + kw + " ===\n")
+            for s in found[kw][:4]:
+                f.write(s + "\n\n")
+print("Search done. Key findings:")
+for kw in ["MMSE", "a53", "CES-D", "depress", "exercise", "trueage", "a1", "residenc"]:
+    if kw in found:
+        print(" ", kw, ":", len(found[kw]), "snippets ->", out)

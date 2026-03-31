@@ -1,0 +1,12 @@
+Table 5. ATE of five interventions by cohort (XLearner) — 便于阅读版
+
+文件：Table5_ATE_Formatted.csv
+来源：table4_ate_summary.csv
+
+格式说明：
+- 每个单元格 = ATE% (95% CI 下限, 95% CI 上限)，合并在同一单元格
+- 数值为风险差（ATE），已转为百分比，保留四位小数
+- 括号内为 95% 置信区间 (LB, UB)
+- * 表示 95% CI 不包含 0（显著）
+
+示例：-4.24% (-7.89, -0.89)* 表示 ATE = -4.24%，95% CI 为 -7.89% 至 -0.89%，显著

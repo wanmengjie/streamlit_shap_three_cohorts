@@ -1,0 +1,9 @@
+Treatment: disability_no
+ATE (point estimate): -0.0087
+95% CI: (-0.0783, 0.0610)
+90% CI: (-0.0671, 0.0498)
+N: 8828
+Overlap trimming (PS not in [0.05,0.95]): 2 excluded (0.0%)
+E-Value (point): 1.66
+E-Value (conservative, from 95%% CI): 0.45
+  (Unmeasured confounder would need RR≥E with both T and Y to explain away the effect)

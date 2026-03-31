@@ -1,0 +1,36 @@
+# generate_fig_s7.py (Original: 52 lines, Cleaned: 35 lines)
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import os
+def generate_figure_s7(df_path, consensus_path, output_dir='evaluation_results/distributions'):
+    os.makedirs(output_dir, exist_ok=True)
+    df = pd.read_csv(df_path)
+    audit_df = pd.read_csv(consensus_path)
+    top_features = audit_df.sort_values('Selection_Count', ascending=False)['Unnamed: 0'].head(9).tolist()
+    plt.figure(figsize=(15, 15))
+    Y = 'is_comorbidity_next'
+    for i, col in enumerate(top_features):
+        plt.subplot(3, 3, i+1)
+        unique_vals = df[col].dropna().unique()
+        if len(unique_vals) > 5:
+            sns.violinplot(x=Y, y=col, data=df, palette='Set2', split=True, inner="quart")
+            plt.title(f'Distribution of {col}')
+        else:
+            counts = df.groupby([Y, col]).size().unstack(fill_value=0)
+            counts_pct = counts.div(counts.sum(axis=1), axis=0) * 100
+            counts_pct.plot(kind='bar', stacked=True, ax=plt.gca(), color=sns.color_palette('Pastel1'))
+            plt.title(f'Proportion of {col}')
+            plt.ylabel('Percentage (%)')
+            plt.legend(title=col, bbox_to_anchor=(1.05, 1), loc='upper left')
+        plt.xlabel('Incident Comorbidity (0: No, 1: Yes)')
+        plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, 'figS7_top_predictors_dist.png'), dpi=300)
+    plt.close()
+    print(f"✅ Figure S7 已生成至: {output_dir}")
+if __name__ == "__main__":
+    generate_figure_s7(
+        'preprocessed_data/CHARLS_final_preprocessed.csv',
+        'evaluation_results/methodology_audit/feature_selection_audit_final.csv'
+    )

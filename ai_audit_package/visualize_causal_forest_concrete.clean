@@ -1,0 +1,110 @@
+# visualize_causal_forest_concrete.py (Original: 140 lines, Cleaned: 109 lines)
+# -*- coding: utf-8 -*-
+import os
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use('Agg')
+plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'DejaVu Sans']
+plt.rcParams['axes.unicode_minus'] = False
+def load_causal_data(axis='B'):
+    paths = {
+        'A': 'Axis_A_Healthy_Prospective/03_causal/CAUSAL_ANALYSIS_exercise.csv',
+        'B': 'Axis_B_Depression_to_Comorbidity/03_causal/CAUSAL_ANALYSIS_exercise.csv',
+        'C': 'Axis_C_Cognition_to_Comorbidity/03_causal/CAUSAL_ANALYSIS_exercise.csv',
+    }
+    path = paths.get(axis, paths['B'])
+    if not os.path.exists(path):
+        return None
+    return pd.read_csv(path)
+def draw_concrete_causal_forest(output_dir='LIU_JUE_STRATEGIC_SUMMARY'):
+    os.makedirs(output_dir, exist_ok=True)
+    df = load_causal_data('B')
+    if df is None:
+        print("未找到因果分析结果，请先运行主流程。")
+        return
+    causal_col = 'causal_impact_exercise'
+    if causal_col not in df.columns:
+        print(f"未找到 {causal_col} 列")
+        return
+    cate = df[causal_col].dropna()
+    if len(cate) < 10:
+        print("样本过少")
+        return
+    fig = plt.figure(figsize=(14, 10))
+    ax1 = fig.add_subplot(2, 2, 1)
+    qs = [0, 0.25, 0.5, 0.75, 1.0]
+    indices = [cate.quantile(q) for q in qs]
+    sample_rows = []
+    for q_val in indices:
+        idx = (df[causal_col] - q_val).abs().idxmin()
+        sample_rows.append(df.loc[idx])
+    labels = ['CATE 最低\n(运动获益最大)', '25%分位', '中位数', '75%分位', 'CATE 最高\n(运动获益最小)']
+    cates_show = [r[causal_col] for r in sample_rows]
+    colors = plt.cm.RdYlGn_r(np.linspace(0.2, 0.8, 5))  # 绿=获益大，红=获益小
+    y_pos = np.arange(5)[::-1]
+    bars = ax1.barh(y_pos, cates_show, color=colors, alpha=0.85)
+    ax1.set_yticks(y_pos)
+    ax1.set_yticklabels(labels, fontsize=9)
+    ax1.axvline(0, color='gray', linestyle='--', alpha=0.7)
+    ax1.set_xlabel('个体 CATE（运动对共病风险的影响）')
+    ax1.set_title('5 个典型个体的因果效应估计', fontsize=12)
+    ax1.set_xlim(cate.min() - 0.02, cate.max() + 0.02)
+    for i, r in enumerate(sample_rows):
+        age = r.get('age', np.nan)
+        rural = '农村' if r.get('rural', 0) == 1 else '城市'
+        ex = '运动' if r.get('exercise', 0) == 1 else '不运动'
+        txt = f"  {age:.0f}岁 {rural} {ex}"
+        ax1.text(cates_show[i] + 0.005 if cates_show[i] >= 0 else cates_show[i] - 0.03, 
+                 y_pos[i], txt, va='center', fontsize=8, color='#333')
+    ax2 = fig.add_subplot(2, 2, 2)
+    ax2.hist(cate, bins=40, color='teal', alpha=0.7, edgecolor='white')
+    ax2.axvline(cate.mean(), color='red', linestyle='--', linewidth=2, label=f'ATE = {cate.mean():.4f}')
+    ax2.axvline(0, color='gray', linestyle='-', alpha=0.5)
+    ax2.set_xlabel('个体 CATE')
+    ax2.set_ylabel('人数')
+    ax2.set_title('轴线 B（仅抑郁）个体因果效应分布', fontsize=12)
+    ax2.legend()
+    ax3 = fig.add_subplot(2, 2, 3)
+    if 'age' in df.columns:
+        df_plot = df[['age', causal_col]].dropna()
+        df_plot['age_bin'] = pd.cut(df_plot['age'], bins=[0, 65, 70, 75, 80, 120], 
+                                    labels=['<65', '65-70', '70-75', '75-80', '80+'])
+        bin_means = df_plot.groupby('age_bin', observed=True)[causal_col].agg(['mean', 'count', 'std'])
+        bin_means = bin_means[bin_means['count'] >= 20]  # 至少 20 人
+        x_pos = np.arange(len(bin_means))
+        ax3.bar(x_pos, bin_means['mean'], color='steelblue', alpha=0.8)
+        ax3.errorbar(x_pos, bin_means['mean'], yerr=1.96 * bin_means['std'] / np.sqrt(bin_means['count']), 
+                     fmt='none', color='black', capsize=3)
+        ax3.set_xticks(x_pos)
+        ax3.set_xticklabels(bin_means.index)
+        ax3.axhline(0, color='gray', linestyle='--', alpha=0.5)
+        ax3.set_xlabel('年龄组')
+        ax3.set_ylabel('平均 CATE')
+        ax3.set_title('因果效应随年龄的异质性', fontsize=12)
+    else:
+        ax3.text(0.5, 0.5, '无 age 列', ha='center', va='center', transform=ax3.transAxes)
+    ax4 = fig.add_subplot(2, 2, 4)
+    if 'rural' in df.columns:
+        urban = df[df['rural'] == 0][causal_col].dropna()
+        rural = df[df['rural'] == 1][causal_col].dropna()
+        if len(urban) >= 10 and len(rural) >= 10:
+            bp = ax4.boxplot([urban, rural], tick_labels=['Urban', 'Rural'], patch_artist=True)
+            bp['boxes'][0].set_facecolor('#5bc0de')
+            bp['boxes'][1].set_facecolor('#5cb85c')
+            ax4.axhline(0, color='gray', linestyle='--', alpha=0.5)
+            ax4.set_ylabel('个体 CATE')
+            ax4.set_title('城乡因果效应分布对比', fontsize=12)
+        else:
+            ax4.text(0.5, 0.5, '城乡样本不足', ha='center', va='center', transform=ax4.transAxes)
+    else:
+        ax4.text(0.5, 0.5, '无 rural 列', ha='center', va='center', transform=ax4.transAxes)
+    fig.suptitle('因果森林在 CHARLS 轴线 B（仅抑郁人群）的应用具象化', fontsize=14, y=1.02)
+    plt.tight_layout()
+    out_path = os.path.join(output_dir, 'fig_causal_forest_concrete.png')
+    plt.savefig(out_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"已保存: {out_path}")
+if __name__ == '__main__':
+    draw_concrete_causal_forest()

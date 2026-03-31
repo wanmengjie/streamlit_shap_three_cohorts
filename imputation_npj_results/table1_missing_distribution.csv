@@ -1,0 +1,11 @@
+﻿Variable,N_missing,Missing_pct,Tier,N_complete
+wspeed,5659,39.3369,severe,8727
+puff,5501,38.2386,severe,8885
+pulse,5310,36.9109,severe,9076
+diasto,5307,36.89,severe,9079
+systo,5305,36.8761,severe,9081
+lgrip,5303,36.8622,severe,9083
+bmi,5272,36.6467,severe,9114
+mwaist,5240,36.4243,severe,9146
+income_total,4683,32.5525,severe,9703
+pension,1451,10.0862,severe,12935

@@ -1,0 +1,9 @@
+Treatment: ins_yes
+ATE (point estimate): -0.0078
+95% CI: (-0.1682, 0.1527)
+90% CI: (-0.1424, 0.1269)
+N: 8828
+Overlap trimming (PS not in [0.05,0.95]): 8212 excluded (93.0%)
+E-Value (point): 1.55
+E-Value (conservative, from 95%% CI): 0.38
+  (Unmeasured confounder would need RR≥E with both T and Y to explain away the effect)

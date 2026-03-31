@@ -1,0 +1,60 @@
+# graph_crf.py (Original: 213 lines, Cleaned: 59 lines)
+import numpy as np
+from .crf import CRF
+from ..utils import expand_sym, compress_sym
+class GraphCRF(CRF):
+    def __init__(self, n_states=None, n_features=None, inference_method=None,
+                 class_weight=None, directed=False):
+        self.directed = directed
+        CRF.__init__(self, n_states, n_features, inference_method,
+                     class_weight=class_weight)
+    def _set_size_joint_feature(self):
+        if self.n_features is not None and self.n_states is not None:
+            if self.directed:
+                self.size_joint_feature = int(self.n_states * self.n_features +
+                                           self.n_states ** 2)
+            else:
+                self.size_joint_feature = int(
+                    self.n_states * self.n_features
+                    + self.n_states * (self.n_states + 1) / 2)
+    def _get_edges(self, x):
+        return x[1]
+    def _get_features(self, x):
+        return x[0]
+    def _get_pairwise_potentials(self, x, w):
+        self._check_size_w(w)
+        self._check_size_x(x)
+        pw = w[self.n_states * self.n_features:]
+        if self.directed:
+            return pw.reshape(self.n_states, self.n_states)
+        return expand_sym(pw)
+    def _get_unary_potentials(self, x, w):
+        self._check_size_w(w)
+        self._check_size_x(x)
+        features = self._get_features(x)
+        unary_params = w[:self.n_states * self.n_features].reshape(
+            self.n_states, self.n_features)
+        return np.dot(features, unary_params.T)
+    def joint_feature(self, x, y):
+        self._check_size_x(x)
+        features, edges = self._get_features(x), self._get_edges(x)
+        n_nodes = features.shape[0]
+        if isinstance(y, tuple):
+            unary_marginals, pw = y
+            unary_marginals = unary_marginals.reshape(n_nodes, self.n_states)
+            pw = pw.reshape(-1, self.n_states, self.n_states).sum(axis=0)
+        else:
+            y = y.reshape(n_nodes)
+            gx = np.ogrid[:n_nodes]
+            unary_marginals = np.zeros((n_nodes, self.n_states), dtype=np.int)
+            gx = np.ogrid[:n_nodes]
+            unary_marginals[gx, y] = 1
+            pw = np.dot(unary_marginals[edges[:, 0]].T,
+                        unary_marginals[edges[:, 1]])
+        unaries_acc = np.dot(unary_marginals.T, features)
+        if self.directed:
+            pw = pw.ravel()
+        else:
+            pw = compress_sym(pw)
+        joint_feature_vector = np.hstack([unaries_acc.ravel(), pw])
+        return joint_feature_vector

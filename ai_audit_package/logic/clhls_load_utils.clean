@@ -1,0 +1,58 @@
+# clhls_load_utils.py (Original: 87 lines, Cleaned: 57 lines)
+# -*- coding: utf-8 -*-
+import os
+import pandas as pd
+def load_dta(path):
+    return pd.read_stata(path, convert_categoricals=False)
+def load_sav(path):
+    try:
+        import pyreadstat
+    except ImportError:
+        raise ImportError("读取 .sav 需要安装 pyreadstat，请运行: pip install pyreadstat")
+    err = None
+    for encoding in (None, "latin1", "utf-8"):
+        try:
+            kwargs = {} if encoding is None else {"encoding": encoding}
+            df, _ = pyreadstat.read_sav(path, **kwargs)
+            return df
+        except (SystemError, TypeError, Exception) as e:
+            err = e
+            continue
+    raise RuntimeError(f"读取 .sav 失败: {err}") from err
+def load_clhls_file(path):
+    path = os.path.abspath(path)
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"文件不存在: {path}")
+    ext = os.path.splitext(path)[1].lower()
+    if ext == '.dta':
+        return load_dta(path)
+    if ext == '.sav':
+        return load_sav(path)
+    raise ValueError(f"仅支持 .dta 或 .sav，当前: {ext}")
+def find_clhls_data(clhls_dir='CLHLS'):
+    if not os.path.isdir(clhls_dir):
+        return None, None
+    dta_paths, sav_paths = [], []
+    for root, _, files in os.walk(clhls_dir):
+        for f in files:
+            low = f.lower()
+            if low.endswith('.dta'):
+                dta_paths.append(os.path.join(root, f))
+            elif low.endswith('.sav'):
+                sav_paths.append(os.path.join(root, f))
+    if dta_paths:
+        return dta_paths[0], 'dta'
+    if sav_paths:
+        return sav_paths[0], 'sav'
+    return None, None
+if __name__ == '__main__':
+    import sys
+    clhls_dir = sys.argv[1] if len(sys.argv) > 1 else 'CLHLS'
+    path, fmt = find_clhls_data(clhls_dir)
+    if path is None:
+        print(f"在 {clhls_dir} 下未找到 .dta 或 .sav 文件")
+    else:
+        print(f"找到: {path} ({fmt})")
+        df = load_clhls_file(path)
+        print(f"行数: {len(df)}, 列数: {len(df.columns)}")
+        print("列名（前 40 个）:", list(df.columns)[:40])

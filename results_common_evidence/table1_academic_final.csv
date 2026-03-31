@@ -1,0 +1,6 @@
+,age,age,gender,rural,total_cognition,total_cognition,cesd10,cesd10
+,mean,std,mean,mean,mean,std,mean,std
+baseline_group,,,,,,,,
+0,66.65,5.36,0.66,0.48,13.87,1.98,4.17,2.78
+1,66.21,5.08,0.55,0.61,13.12,1.79,14.45,4.16
+2,67.91,6.2,0.54,0.67,7.94,1.89,4.86,2.71

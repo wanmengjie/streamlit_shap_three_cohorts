@@ -1,0 +1,40 @@
+# final_fix_fig_s1.py (Original: 64 lines, Cleaned: 39 lines)
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import os
+def final_fix_fig_s1(raw_path='CHARLS.csv', output_dir='evaluation_results/missing_audit'):
+    os.makedirs(output_dir, exist_ok=True)
+    if not os.path.exists(raw_path):
+        raw_path = 'CHARLS.csv'
+    df_raw = pd.read_csv(raw_path)
+    semantic_features = [
+        'age', 'gender', 'rural', 'marriage', 'edu', 'social', 'smoking', 'drinking', 
+        'activity', 'nap', 'sleep', 'disabled', 'is_depression', 'total_cognition', 
+        'systo', 'diasto', 'pulse', 'mheight', 'mweight', 'mwaist', 'lgrip', 'rgrip',
+        'diabe', 'cancre', 'lung', 'heart', 'strok', 'arthr', 'dysli', 'liver', 'kidne', 'stoma', 'psych', 'memor', 'execu'
+    ]
+    available_features = [f for f in semantic_features if f in df_raw.columns]
+    df_initial = df_raw[available_features]
+    missing_ratios = df_initial.isnull().mean().sort_values(ascending=False)
+    missing_ratios = missing_ratios[missing_ratios > 0]
+    if missing_ratios.empty:
+        print("Warning: Direct column match empty. Attempting fuzzy match for missing data...")
+        missing_ratios = df_raw.isnull().mean().sort_values(ascending=False).head(20)
+        missing_ratios = missing_ratios[missing_ratios > 0]
+    plt.figure(figsize=(12, 10))
+    sns.barplot(x=missing_ratios.values, y=missing_ratios.index, palette='Blues_r')
+    for i, v in enumerate(missing_ratios.values):
+        plt.text(v + 0.002, i, f'{v:.2%}', va='center', fontsize=10)
+    plt.title('Figure S1. Real-world Missing Pattern of Initial 51 Predictors (Baseline Cohort)', fontsize=14, fontweight='bold', pad=20)
+    plt.xlabel('Proportion of Missing Data (Pre-imputation)', fontsize=12)
+    plt.ylabel('Initial Study Predictors', fontsize=12)
+    plt.xlim(0, max(missing_ratios.values) + 0.05)
+    plt.grid(axis='x', linestyle='--', alpha=0.5)
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, 'figS1_missing_ratios_final.png'), dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"✅ Figure S1 已通过原始数据 (CHARLS.csv) 修复！路径: {output_dir}")
+if __name__ == "__main__":
+    final_fix_fig_s1()

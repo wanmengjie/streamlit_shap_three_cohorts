@@ -1,0 +1,54 @@
+# draw_propensity_overlap.py (Original: 83 lines, Cleaned: 53 lines)
+# -*- coding: utf-8 -*-
+import os
+import numpy as np
+import pandas as pd
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.linear_model import LogisticRegression
+from charls_complete_preprocessing import preprocess_charls_data
+from charls_causal_methods_comparison import _prepare_covariates
+from charls_feature_lists import get_exclude_cols
+from config import OUTPUT_ROOT, BBOX_INCHES, TARGET_COL
+def draw_propensity_overlap():
+    print("Loading data...")
+    df = preprocess_charls_data('CHARLS.csv', age_min=60, write_output=False)
+    if df is None:
+        print("Data loading failed.")
+        return
+    df_b = df[df['baseline_group'] == 1].copy()
+    print(f"Cohort B sample size: {len(df_b)}")
+    T = 'exercise'
+    Y = TARGET_COL
+    exclude_cols = get_exclude_cols(df_b, target_col=Y, treatment_col=T)
+    X, _ = _prepare_covariates(df_b, T, Y, exclude_cols)
+    if X is None:
+        print("Covariate preparation failed.")
+        return
+    print("Calculating propensity scores...")
+    T_vals = df_b[T].fillna(0).astype(int)
+    ps_model = LogisticRegression(max_iter=1000, C=1e-2, solver='lbfgs', random_state=500)
+    ps_model.fit(X, T_vals)
+    ps = ps_model.predict_proba(X)[:, 1]
+    df_b['ps'] = ps
+    print("Plotting overlap...")
+    plt.figure(figsize=(10, 6))
+    sns.kdeplot(data=df_b[df_b[T] == 0], x='ps', fill=True, color='#d9534f', label='Control (No Exercise)', alpha=0.3)
+    sns.kdeplot(data=df_b[df_b[T] == 1], x='ps', fill=True, color='#5cb85c', label='Treated (Exercise)', alpha=0.3)
+    plt.title('Propensity Score Overlap (Cohort B: Exercise Intervention)', fontsize=14, fontweight='bold')
+    plt.xlabel('Propensity Score', fontsize=12)
+    plt.ylabel('Density', fontsize=12)
+    plt.legend(fontsize=11)
+    plt.grid(alpha=0.3)
+    plt.xlim(0, 1)
+    plt.text(0.5, -0.15, 'Substantial overlap indicates validity of the positivity assumption.', 
+             ha='center', va='top', transform=plt.gca().transAxes, fontsize=10, style='italic')
+    output_dir = OUTPUT_ROOT
+    os.makedirs(output_dir, exist_ok=True)
+    output_path = os.path.join(output_dir, 'fig_propensity_overlap.png')
+    plt.savefig(output_path, dpi=300, bbox_inches=BBOX_INCHES)
+    print(f"Figure S2 saved to: {output_path}")
+if __name__ == '__main__':
+    draw_propensity_overlap()

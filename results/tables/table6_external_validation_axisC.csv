@@ -1,0 +1,3 @@
+﻿Split,Split_Desc,AUC,AUPRC,Brier,n_train,n_val
+Temporal,Frozen champion on wave=4 (same held-out wave as main CPM test),0.6449669646327244,0.22232362715807508,0.12027054592166789,,579
+Regional,Frozen champion; val regions: West,0.9478594564145895,0.8508098983666502,0.08598042859043636,,634

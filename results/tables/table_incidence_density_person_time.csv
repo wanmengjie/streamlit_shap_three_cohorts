@@ -1,0 +1,15 @@
+Baseline_Characteristics,Total_N_unique_IDs,Incident_Cases,Total_Person_Years,Incidence_Density_per_1000_PYs
+Overall,7027,1202,27562,43.6108
+Cohort A (healthy baseline),4053,377,17351,21.7279
+Cohort B (depression only),1649,446,6292,70.8837
+Cohort C (cognitive impairment only),1325,379,3919,96.7083
+Age <65 years,4242,614,16546,37.1087
+Age 65¨C74 years,2280,471,9429,49.9523
+Age ¡Ý75 years,505,117,1587,73.724
+Age missing,0,0,0,
+Male,2837,595,10377,57.3383
+Female,4190,607,17185,35.3215
+Sex missing,0,0,0,
+Urban,3235,364,12996,28.0086
+Rural,3792,838,14566,57.5312
+Residence missing,0,0,0,

@@ -1,0 +1,19 @@
+# extract_docx_text.py (Original: 22 lines, Cleaned: 18 lines)
+# -*- coding: utf-8 -*-
+import zipfile
+import re
+import os
+path = r"CLHLS\dataverse_files\CLHLS_codebook 1998-2018\codebook_for_2008_2018_longitudinal_dataset.docx"
+if not os.path.exists(path):
+    path = os.path.join(os.path.dirname(__file__), path)
+if not os.path.exists(path):
+    print("File not found:", path)
+    exit(1)
+with zipfile.ZipFile(path, "r") as z:
+    xml = z.read("word/document.xml").decode("utf-8", errors="replace")
+text = re.sub(r"<[^>]+>", " ", xml)
+text = re.sub(r"\s+", " ", text).strip()
+out = "CLHLS_codebook_extract.txt"
+with open(out, "w", encoding="utf-8") as f:
+    f.write(text[:600000])
+print("Wrote", min(len(text), 600000), "chars to", out)

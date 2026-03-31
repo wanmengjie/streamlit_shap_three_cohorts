@@ -1,0 +1,2 @@
+﻿Test,Chi2,df,P_value,MCAR_rejected,Interpretation
+Little's MCAR,5424.7746,3581,0.0,True,Non-MCAR (MAR likely)

@@ -1,0 +1,166 @@
+
+=== cognitive ===
+ired 4 paralyzed 5 didn't wish to participate 6 could not understand because of cognitive impairment 7 not able to participate at the moment due to illness 8 other reasons 9 missing rd1 0 without proxy 1 with proxy d1 1 rice 2 corn(maize) 3 wheat (noodles and bread etc.) 4 rice a
+
+mpaired 4 paralyzed 5 did not wish to participate 6 could not understand due to cognitive impairment 7 suffering from illness at moment 8 others 9 missing h3 1 surprisingly healthy 2 relatively healthy 3 moderately ill 4 very ill 9 missing h6 1 yes 2 no 9 missing h7 1 yes 2 no 9
+
+ired 4 paralyzed 5 didn't wish to participate 6 could not understand because of cognitive impairment 7 not able to participate at the moment due to illness 8 other reasons 9 missing rd1_11 -9 lost to follow-up in the 2011 survey -7 for survivors, not applicable for deceased 0 wit
+
+mpaired 4 paralyzed 5 did not wish to participate 6 could not understand due to cognitive impairment 7 suffering from illness at moment 8 others 9 missing h3_11 -9 lost to follow-up in the 2011 survey -7 for survivors, not applicable for deceased 1 surprisingly healthy 2 relative
+
+
+=== mental ===
+y 9 missing f2 -1 not applicable 0 professional and technical personnel 1 governmental, institutional or managerial personnel 2 commercial, service or industrial worker 3 self-employed 4 agriculture, forestry, animal husbandry or fishery worker 5 houseworker 6 military personnel
+
+9 missing f45 -1 not applicable 0 professional and technical personnel 1 governmental, institutional or managerial personnel 2 commercial, service or industrial worker 3 professional 4 agriculture,forestry,animal husbandry or fishery worker 5 housework 6 military personnel 7 nev
+
+9 missing f84 -1 not applicable 0 professional and technical personnel 1 governmental, institutional or managerial personnel 2 commercial, service or industrial worker 3 self-employed 4 agriculture,forestry,animal husbandry or fishery worker 5 housework 6 military personnel 7 ne
+
+9 missing f85 -1 not applicable 0 professional and technical personnel 1 governmental, institutional or managerial personnel 2 commercial, service or industrial worker 3 self-employed 4 agriculture,forestry,animal husbandry or fishery worker 5 housework 6 military personnel 7 ne
+
+
+=== a53 ===
+not for a52 Ordinal F8 a52 22 how many people are living with you? Ordinal F8 ra53a 23 proxy or not for a53a1, a53a11, a53a2, a53a3, a53a4 Ordinal F8 a53a1 24 relationship between you and 1st person you living with currently Ordinal F8 a53a11 25 other relationship between you an
+
+52 22 how many people are living with you? Ordinal F8 ra53a 23 proxy or not for a53a1, a53a11, a53a2, a53a3, a53a4 Ordinal F8 a53a1 24 relationship between you and 1st person you living with currently Ordinal F8 a53a11 25 other relationship between you and 1st person you living w
+
+ow many people are living with you? Ordinal F8 ra53a 23 proxy or not for a53a1, a53a11, a53a2, a53a3, a53a4 Ordinal F8 a53a1 24 relationship between you and 1st person you living with currently Ordinal F8 a53a11 25 other relationship between you and 1st person you living with cur
+
+people are living with you? Ordinal F8 ra53a 23 proxy or not for a53a1, a53a11, a53a2, a53a3, a53a4 Ordinal F8 a53a1 24 relationship between you and 1st person you living with currently Ordinal F8 a53a11 25 other relationship between you and 1st person you living with currently N
+
+
+=== ra53 ===
+r not for a52 Ordinal F8 a52 22 how many people are living with you? Ordinal F8 ra53a 23 proxy or not for a53a1, a53a11, a53a2, a53a3, a53a4 Ordinal F8 a53a1 24 relationship between you and 1st person you living with currently Ordinal F8 a53a11 25 other relationship between you a
+
+F8 a53a4 28 education level of 1st person living with you currently Ordinal F8 ra53b 29 proxy or not for a53b1, a53b11, a53b2, a53b3, a53b4 Ordinal F8 a53b1 30 relationship between you and 2nd person living with you currently Ordinal F8 a53b11 31 other relationship between you a
+
+F8 a53b4 34 education level of 2nd person living with you currently Ordinal F8 ra53c 35 proxy or not for a53c1, a53c11, a53c2, a53c3, a53c4 Ordinal F8 a53c1 36 relationship between you and 3rd person living with you currently Ordinal F8 a53c11 37 other relationship between you a
+
+F8 a53c4 40 education level of 3rd person living with you currently Ordinal F8 ra53d 41 proxy or not for a53d1, a53d11, a53d2, a53d3, a53d4 Ordinal F8 a53d1 42 relationship between you and 4th person living with you currently Ordinal F8 a53d11 43 other relationship between you a
+
+
+=== depress ===
+27_11 930 be happy as younger Ordinal F8 b28_11 931 have you felt sad, blue, or depressed for two weeks or more in last 12 months? Ordinal F8 b29_11 932 have you lost interest in most things like hobbies, work, or similar activities Ordinal F8 b210_11 933 how much of the day did
+
+_14 2063 be happy as younger Ordinal F8 b28_14 2064 have you felt sad, blue, or depressed for two weeks or more in last 12 months? Ordinal F8 b29_14 2065 have you lost interest in most things like hobbies, work, or similar activities Ordinal F8 b210_14 2066 how much of the day di
+
+ate when you are doing things now Ordinal F8 b33_18 3170 are you feeling sad or depressed? Ordinal F8 b34_18 3171 do you think that the older you are, the less useful you are, and the hard work Ordinal F8 b35_18 3172 are you full of hope for future life? Ordinal F8 b36_18 3173 ar
+
+
+=== exercise ===
+u drink (or drank)? Ordinal F8 rd91 229 proxy or not for d91 Ordinal F8 d91 230 exercise or not at present? Ordinal F8 rd92 231 proxy or not for d92 Ordinal F8 d92 232 exercised or not in the past? Ordinal F8 rd93 233 proxy or not for d93 Ordinal F8 d93 234 age when started to ex
+
+or not at present? Ordinal F8 rd92 231 proxy or not for d92 Ordinal F8 d92 232 exercised or not in the past? Ordinal F8 rd93 233 proxy or not for d93 Ordinal F8 d93 234 age when started to exercise Ordinal F8 rd94 235 proxy or not for d94 Ordinal F8 d94 236 age when quit exercis
+
+Ordinal F8 rd93 233 proxy or not for d93 Ordinal F8 d93 234 age when started to exercise Ordinal F8 rd94 235 proxy or not for d94 Ordinal F8 d94 236 age when quit exercise if not exercising at present Ordinal F8 rd101 237 proxy or not for d101 Ordinal F8 d101 238 have you done ph
+
+rcise Ordinal F8 rd94 235 proxy or not for d94 Ordinal F8 d94 236 age when quit exercise if not exercising at present Ordinal F8 rd101 237 proxy or not for d101 Ordinal F8 d101 238 have you done physical labor regularly? Ordinal F8 rd102 239 proxy or not for d102 Ordinal F8 d102
+
+
+=== sport ===
+nal F8 re14 311 proxy or not for e14 Ordinal F8 e14 312 able to take public transportation? Ordinal F8 rf1 313 proxy or not for f1 Ordinal F8 f1 314 years of schooling Ordinal F8 rf2 315 proxy or not for f2 Ordinal F8 f2 316 main occupation before age 60 Ordinal F8 f2t 317 other
+
+e14_11 1149 proxy or not for e14 Ordinal F8 e14_11 1150 able to take public transportation? Ordinal F8 rf21_11 1151 proxy or not for f21 Ordinal F8 f21_11 1152 do you have a retirement pension? Ordinal F8 rf211_11 1153 proxy or not for f211 Ordinal F8 f211_11 1154 are you retired
+
+e14_14 2282 proxy or not for e14 Ordinal F8 e14_14 2283 able to take public transportation? Ordinal F8 rf1_14 2284 proxy or not for f1 Ordinal F8 f1_14 2285 years of schooling Ordinal F8 rf2_14 2286 proxy or not for f2 Ordinal F8 f2_14 2287 main occupation before age 60 Ordinal F
+
+to crouch and stand three times? Ordinal F8 e14_18 3326 able to take public transportation? Ordinal F8 f1_18 3327 years of schooling Scale F8 f2_18 3328 main occupation before age 60 Nominal F8 f2t_18 3329 other occupation beyond f2 Nominal A20 f21_18 3330 do you enjoy the separa
+
+
+=== trueage ===
+dinal F8 residenc 9 category of residence of the interviewee in 2008 Ordinal F8 trueage 10 validated age Scale F8 a1 11 sex Ordinal F8 a2 12 ethnic group Ordinal F8 ra41 13 proxy or not for a41 Ordinal F8 a41 14 which province were you born in? Ordinal F8 ra42 15 proxy or not for
+
+A8 residenc_14 1941 category of residence of the interviewee in 2014 Ordinal F8 trueage_14 1942 validated age Scale F8 ra41_14 1943 proxy or not for a41 Ordinal F8 a41_14 1944 which province were you born in? Nominal A4 ra42_14 1945 proxy or not for a42 Ordinal F8 a42_14 1946 was
+
+ears did the interviewed elderly live in his/her current place of resi Scale F8 trueage_18 3055 validated age Scale F8 a2_18 3056 ethnic group Nominal F8 a2qt_18 3057 other ethnic group beyond a2 Nominal A2 a41_18 3058 which province were you born in? Nominal F8 a42_18 3059 was t
+
+
+=== age ===
+his dataset, while some of them are treated as ‘string’ ones. Variables such as age, year, month, number of persons, and number of days are treated as ‘Scale’ type. Most of the remaining variables are treated as ‘Nominal’ ones including ‘yes’ or ‘no’ binomial questions. Variables
+
+g variables. The information gathered in the 200 8 survey (e.g., number of marriages, information about the last marriage) is subject to change. 1 0 . Geographic codes indicating participants ’ county/city/town residence location in 1998, 2000, 2002, 2005 , 2008, 2011, 2014, and
+
+in the 200 8 survey (e.g., number of marriages, information about the last marriage) is subject to change. 1 0 . Geographic codes indicating participants ’ county/city/town residence location in 1998, 2000, 2002, 2005 , 2008, 2011, 2014, and 2018 waves are NOT included in this re
+
+eight variable “w_2008” is estimated based on the numbers of elderly persons by age, sex, and rural/urban residence in 2008 from the 2010 census 100% data tabulations for the 23 provinces where the 2008 survey was conducted. The total number of the weighted individual cases of th
+
+
+=== a1 ===
+sidence of the interviewee in 2008 Ordinal F8 trueage 10 validated age Scale F8 a1 11 sex Ordinal F8 a2 12 ethnic group Ordinal F8 ra41 13 proxy or not for a41 Ordinal F8 a41 14 which province were you born in? Ordinal F8 ra42 15 proxy or not for a42 Ordinal F8 a42 16 was the cou
+
+22 how many people are living with you? Ordinal F8 ra53a 23 proxy or not for a53a1, a53a11, a53a2, a53a3, a53a4 Ordinal F8 a53a1 24 relationship between you and 1st person you living with currently Ordinal F8 a53a11 25 other relationship between you and 1st person you living with
+
+many people are living with you? Ordinal F8 ra53a 23 proxy or not for a53a1, a53a11, a53a2, a53a3, a53a4 Ordinal F8 a53a1 24 relationship between you and 1st person you living with currently Ordinal F8 a53a11 25 other relationship between you and 1st person you living with curren
+
+l F8 ra53a 23 proxy or not for a53a1, a53a11, a53a2, a53a3, a53a4 Ordinal F8 a53a1 24 relationship between you and 1st person you living with currently Ordinal F8 a53a11 25 other relationship between you and 1st person you living with currently Nominal A18 a53a3 26 sex of 1st per
+
+
+=== sex ===
+variable “w_2008” is estimated based on the numbers of elderly persons by age, sex, and rural/urban residence in 2008 from the 2010 census 100% data tabulations for the 23 provinces where the 2008 survey was conducted. The total number of the weighted individual cases of the sur
+
+sample size. However, the numbers of the weighted individual cases for the age-sex-residence-specific groups may not be exactly the same as the actual sub-sample size of the corresponding groups. Thus, SPSS, SAS, STATA (or other software) would not produce correct p-values for t
+
+significance of the differences of the average proportions across different age-sex-reference groups, since the sub-sample size of the sub-groups may be altered after weighting the individual cases. Therefore, the weights need to be appropriately adjusted to ensure that the sub-s
+
+e of the interviewee in 2008 Ordinal F8 trueage 10 validated age Scale F8 a1 11 sex Ordinal F8 a2 12 ethnic group Ordinal F8 ra41 13 proxy or not for a41 Ordinal F8 a41 14 which province were you born in? Ordinal F8 ra42 15 proxy or not for a42 Ordinal F8 a42 16 was the country (
+
+
+=== residenc ===
+ct to change. 1 0 . Geographic codes indicating participants ’ county/city/town residence location in 1998, 2000, 2002, 2005 , 2008, 2011, 2014, and 2018 waves are NOT included in this released dataset. This is because that some counties have very small number of participants; co
+
+number of participants; consequently, releasing participants ’ county/city/town residence loca tion codes would violate the rules for protecting individuals ’ private confidentiality. 1 1 . The weight variable “w_2008” is estimated based on the numbers of elderly persons by age,
+
+estimated based on the numbers of elderly persons by age, sex, and rural/urban residence in 2008 from the 2010 census 100% data tabulations for the 23 provinces where the 2008 survey was conducted. The total number of the weighted individual cases of the survey is equal to the t
+
+ple size. However, the numbers of the weighted individual cases for the age-sex-residence-specific groups may not be exactly the same as the actual sub-sample size of the corresponding groups. Thus, SPSS, SAS, STATA (or other software) would not produce correct p-values for testi
+
+
+=== urban ===
+08” is estimated based on the numbers of elderly persons by age, sex, and rural/urban residence in 2008 from the 2010 census 100% data tabulations for the 23 provinces where the 2008 survey was conducted. The total number of the weighted individual cases of the survey is equal to
+
+nal F8 ra43 17 proxy or not for a43 Ordinal F8 a43 18 was the place of birth an urban area or a rural area at time of birth Ordinal F8 ra51 19 proxy or not for a51 Ordinal F8 a51 20 co-residence of interviewee Ordinal F8 ra52 21 proxy or not for a52 Ordinal F8 a52 22 how many peo
+
+services at present Ordinal F8 f64e1_11 1259 do you have medical insurance for urban workers at present Ordinal F8 f64f1_11 1260 do you have collective medical insurance for urban residents at present Ordinal F8 f64g1_11 1261 do you have the new rural cooperative medical insuran
+
+t present Ordinal F8 f64f1_11 1260 do you have collective medical insurance for urban residents at present Ordinal F8 f64g1_11 1261 do you have the new rural cooperative medical insurance at present Ordinal F8 f64h1_11 1262 do you have commercial medical insurance at present Ordi
+
+
+=== rural ===
+“w_2008” is estimated based on the numbers of elderly persons by age, sex, and rural/urban residence in 2008 from the 2010 census 100% data tabulations for the 23 provinces where the 2008 survey was conducted. The total number of the weighted individual cases of the survey is eq
+
+roxy or not for a43 Ordinal F8 a43 18 was the place of birth an urban area or a rural area at time of birth Ordinal F8 ra51 19 proxy or not for a51 Ordinal F8 a51 20 co-residence of interviewee Ordinal F8 ra52 21 proxy or not for a52 Ordinal F8 a52 22 how many people are living w
+
+nce for urban residents at present Ordinal F8 f64g1_11 1261 do you have the new rural cooperative medical insurance at present Ordinal F8 f64h1_11 1262 do you have commercial medical insurance at present Ordinal F8 f64i_11 1263 do you have other social security or private insuran
+
+lephone prior to death Ordinal F8 d11doctor 1866 if the deceased elder lived in rural, was there a doctor in the village? Ordinal F8 d11licdoc 1867 did the village doctor have a license? Ordinal F8 d11whopay 1868 who mainly paid the medical cost for the deceased elder? Ordinal F8
+
+
+=== id  ===
+ns) Variable Information Variable Position Label Measurement Level Write Format id 1 id, province code +given no. + year of the wave of the very first interview Scale F12 yearin 2 year of the 2008-09 interview Scale F8 monthin 3 month of the 2008 interview Ordinal F8 dayin 4 day
+
+ion Ordinal F8 ra542 104 proxy or not for a542 Ordinal F8 a542 105 who mainly paid for the cost? Ordinal F8 ra54 106 proxy or not for a54a a54b Ordinal F8 a54a 107 year of being admitted to the institution or living alone Ordinal F8 a54b 108 month of being admitted to the institu
+
+nal F8 re63 289 proxy or not for e63 Ordinal F8 e63 290 the total direct cost paid for caregiving last week Ordinal F12 re64 291 proxy or not for e64 Ordinal F8 e64 292 who mainly pays the above cost? Ordinal F8 re65 293 proxy or not for e65 Ordinal F8 e65 294 does the help recei
+
+ds? Ordinal F8 re67 295 proxy or not for e67 Ordinal F8 e67 296 how many hours did the (grand)children help the elder last week? Ordinal F8 re7 297 proxy or not for e7 Ordinal F8 e7 298 able to go outside to visit neighbors? Ordinal F8 re8 299 proxy or not for e8 Ordinal F8 e8 30
+
+
+===  prov ===
+ese Longitudinal Healthy Longevity Survey (CLHLS). The CLHLS covers 23 out of 31 provinces in China . This dataset consists of seven components. The first component contains all the information collected in the 200 8 survey for 1 6 ,95 4 respond ents who were interviewed in 2008
+
+al/urban residence in 2008 from the 2010 census 100% data tabulations for the 23 provinces where the 2008 survey was conducted. The total number of the weighted individual cases of the survey is equal to the total sample size. However, the numbers of the weighted individual cases
+
+able Information Variable Position Label Measurement Level Write Format id 1 id, province code +given no. + year of the wave of the very first interview Scale F12 yearin 2 year of the 2008-09 interview Scale F8 monthin 3 month of the 2008 interview Ordinal F8 dayin 4 day of the 2
+
+_bthyr 5 validated birth year Scale F8 v_bthmon 6 validated birth month Scale F8 prov 7 national code for provinces sampled Ordinal F8 type 8 category of the interviewed respondent Ordinal F8 residenc 9 category of residence of the interviewee in 2008 Ordinal F8 trueage 10 valida
+
+
+=== yearin ===
+ovince code +given no. + year of the wave of the very first interview Scale F12 yearin 2 year of the 2008-09 interview Scale F8 monthin 3 month of the 2008 interview Ordinal F8 dayin 4 day of the 2008 interview Ordinal F8 v_bthyr 5 validated birth year Scale F8 v_bthmon 6 validat
+
+tus of survival, death, or lost to follow-up from 2008 to 2011 waves Ordinal F8 yearin_11 811 year of the 2011/2012 interview Ordinal F8 monthin_11 812 month of the 2011/2012 interview Ordinal F8 dayin_11 813 day of the 2011/2012 interview Ordinal F8 resid_11 814 category of resi
+
+survival, death, or lost to follow-up from 2011/2012 to 2014 waves Ordinal F40 yearin_14 1935 year of the 2014 interview Scale F8 monthin_14 1936 month of the 2014 interview Scale F8 dayin_14 1937 day of the 2014 interview Scale F8 v_bthyr_14 1938 validated birth year Scale F8 v
+
+of survival, death, or lost to follow-up from 2014 to 2018 waves Ordinal F36.2 yearin_18 3049 year of the interview Scale F8 monthin_18 3050 month of the interview Scale F8 dayin_18 3051 day of the interview Scale F8 hukou_18 3052 hukou type of the elderly being visited Nominal
+

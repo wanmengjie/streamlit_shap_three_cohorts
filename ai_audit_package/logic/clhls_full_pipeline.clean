@@ -1,0 +1,136 @@
+# clhls_full_pipeline.py (Original: 176 lines, Cleaned: 135 lines)
+# -*- coding: utf-8 -*-
+import os
+import sys
+import numpy as np
+import pandas as pd
+from sklearn.model_selection import GroupKFold, cross_val_predict
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import roc_auc_score
+from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import StandardScaler
+from clhls_load_utils import load_clhls_file, find_clhls_data
+from clhls_external_validation_plan_a import (
+    WAVE_COL_MAP, ID_COL, AGE_COL, RESIDENCE_COL, EXERCISE_COL, PROV_COL,
+    DEPRESSION_COL, COGNITION_COLS, COGNITION_IMPAIRED_THRESHOLD,
+    clhls_wide_to_long, define_outcome_and_cohort,
+)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from charls_recalculate_causal_impact import estimate_causal_impact
+CLHLS_FEATURE_COLS = ["trueage", "a1", "residenc", "prov", "d91", "f1"]
+OUTPUT_DIR = "CLHLS_full_pipeline"
+TREATMENT_COL = "d91"  # 运动：1=有 0/2=无，因果时填 0 为缺失
+def _add_f1_to_long(df_wide, df_long):
+    if "f1" not in df_wide.columns:
+        return df_long
+    wave_to_f1 = {
+        2008: "f1" if "f1" in df_wide.columns else None,
+        2011: "f1",
+        2014: "f1_14" if "f1_14" in df_wide.columns else None,
+        2018: "f1_18" if "f1_18" in df_wide.columns else None,
+    }
+    f1_vals = []
+    for _, row in df_long.iterrows():
+        wid = row[ID_COL]
+        w = row["wave"]
+        col = wave_to_f1.get(w)
+        if col and col in df_wide.columns:
+            idx = df_wide[df_wide[ID_COL] == wid].index
+            f1_vals.append(df_wide.loc[idx, col].values[0] if len(idx) else np.nan)
+        else:
+            f1_vals.append(np.nan)
+    df_long["f1"] = f1_vals
+    return df_long
+def build_clhls_analysis_df(df_long, df_wide):
+    df_long = _add_f1_to_long(df_wide, df_long)
+    use_cols = [ID_COL, "wave", "baseline_group", "is_comorbidity_next"]
+    for c in CLHLS_FEATURE_COLS:
+        if c in df_long.columns:
+            use_cols.append(c)
+    df = df_long[[c for c in use_cols if c in df_long.columns]].copy()
+    for c in ["trueage", "residenc", "prov", "d91", "f1"]:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+    if "d91" in df.columns:
+        d91 = pd.to_numeric(df["d91"], errors="coerce")
+        df["d91"] = (d91 == 1).astype(int)
+        df.loc[d91.isna(), "d91"] = 0
+    return df
+def run_prediction(df, output_dir):
+    feature_cols = [c for c in CLHLS_FEATURE_COLS if c in df.columns]
+    X = df[feature_cols]
+    X = SimpleImputer(strategy="median").fit_transform(X)
+    X = StandardScaler().fit_transform(X)
+    y = df["is_comorbidity_next"].astype(int).values
+    groups = df[ID_COL].astype(str).values
+    if len(np.unique(y)) < 2:
+        return np.nan
+    cv = GroupKFold(n_splits=5)
+    model = LogisticRegression(max_iter=2000, class_weight="balanced", random_state=500)
+    y_prob = cross_val_predict(model, X, y, groups=groups, cv=cv, method="predict_proba")[:, 1]
+    auc = roc_auc_score(y, y_prob)
+    os.makedirs(output_dir, exist_ok=True)
+    pd.DataFrame({"y_true": y, "y_prob": y_prob}).to_csv(
+        os.path.join(output_dir, "clhls_predictions.csv"), index=False
+    )
+    return auc
+def run_causal(df, output_dir):
+    df = df.rename(columns={ID_COL: "ID"})
+    if "ID" not in df.columns:
+        df["ID"] = df.index.astype(str)
+    try:
+        res_df, (ate, ate_lb, ate_ub) = estimate_causal_impact(
+            df, treatment_col=TREATMENT_COL, output_dir=output_dir
+        )
+        return ate or 0.0, ate_lb or 0.0, ate_ub or 0.0
+    except Exception as e:
+        print(f"    因果估计失败: {e}")
+        return np.nan, np.nan, np.nan
+def run_full_pipeline(clhls_path=None):
+    if clhls_path is None:
+        path, _ = find_clhls_data("CLHLS")
+        if path is None:
+            raise FileNotFoundError("未找到 CLHLS 下 .dta/.sav")
+        clhls_path = path
+    df_wide = load_clhls_file(clhls_path)
+    if not any(("_11" in c or "_14" in c or "_18" in c) for c in df_wide.columns):
+        raise ValueError("CLHLS 需为宽表（含 _11/_14/_18 列）")
+    df_long = clhls_wide_to_long(df_wide)
+    df_long = define_outcome_and_cohort(df_long)
+    if len(df_long) == 0:
+        print("定义结局与队列后样本量为 0，请检查 b29/g15m1/g15m2 与编码。")
+        return
+    df_ana = build_clhls_analysis_df(df_long, df_wide)
+    df_ana = df_ana.dropna(subset=["is_comorbidity_next"] + [c for c in CLHLS_FEATURE_COLS if c in df_ana.columns])
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    print(f"CLHLS 全样本: N={len(df_ana)}")
+    auc_all = run_prediction(df_ana, os.path.join(OUTPUT_DIR, "01_prediction"))
+    print(f"  预测 AUC: {auc_all:.4f}")
+    ate, ate_lb, ate_ub = run_causal(df_ana, os.path.join(OUTPUT_DIR, "02_causal"))
+    print(f"  因果 ATE (d91 运动): {ate:.4f} (95% CI: {ate_lb:.4f}, {ate_ub:.4f})")
+    summary = []
+    for bg, label in [(0, "Healthy"), (1, "Depression_only"), (2, "Cognition_only")]:
+        sub = df_ana[df_ana["baseline_group"] == bg]
+        if len(sub) < 100:
+            continue
+        sub_dir = os.path.join(OUTPUT_DIR, f"by_baseline_{label}")
+        auc_b = run_prediction(sub, os.path.join(sub_dir, "prediction"))
+        ate_b, lb_b, ub_b = run_causal(sub, os.path.join(sub_dir, "causal"))
+        summary.append({
+            "baseline_group": label, "n": len(sub),
+            "auc": auc_b, "ate": ate_b, "ate_lb": lb_b, "ate_ub": ub_b,
+        })
+        print(f"  {label}: n={len(sub)}, AUC={auc_b:.4f}, ATE={ate_b:.4f} ({lb_b:.4f}, {ub_b:.4f})")
+    pd.DataFrame(summary).to_csv(
+        os.path.join(OUTPUT_DIR, "clhls_full_summary.csv"), index=False, encoding="utf-8-sig"
+    )
+    with open(os.path.join(OUTPUT_DIR, "clhls_full_result.txt"), "w", encoding="utf-8") as f:
+        f.write("CLHLS 独立流程：专用特征 + 预测 + 因果机器学习\n")
+        f.write(f"全样本 N={len(df_ana)}, 预测 AUC={auc_all:.4f}\n")
+        f.write(f"全样本 ATE(d91)={ate:.4f} (95% CI: {ate_lb:.4f}, {ate_ub:.4f})\n")
+        for s in summary:
+            f.write(f"{s['baseline_group']}: n={s['n']}, AUC={s['auc']:.4f}, ATE={s['ate']:.4f}\n")
+    print(f"\n结果已保存至 {OUTPUT_DIR}/")
+if __name__ == "__main__":
+    run_full_pipeline()

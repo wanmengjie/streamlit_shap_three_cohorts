@@ -1,0 +1,99 @@
+# update_all_paper_figures.py (Original: 150 lines, Cleaned: 98 lines)
+import os
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import shutil
+import sys
+import numpy as np
+sys.path.append(os.getcwd())
+try:
+    from draw_framework_improved import draw_conceptual_framework_v2
+    from draw_roc_combined import draw_roc_combined
+    from draw_study_flow import draw_study_flow
+except ImportError:
+    print("Warning: Could not import helper scripts. Make sure they exist.")
+OUTPUT_DIR = "FINAL_PAPER_FIGURES"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+def run_update():
+    print(">>> 开始更新论文图表...")
+    print("正在生成 Figure 1 (Study Flow)...")
+    try:
+        draw_study_flow(os.path.join(OUTPUT_DIR, 'Figure_1_Study_Flow.png'))
+    except Exception as e:
+        print(f"Figure 1 生成出错: {e}")
+    print("正在生成 Figure 2 (Conceptual Framework)...")
+    try:
+        draw_conceptual_framework_v2()
+        src = 'LIU_JUE_STRATEGIC_SUMMARY/fig_conceptual_framework_final.png'
+        if os.path.exists(src):
+            shutil.copy(src, os.path.join(OUTPUT_DIR, 'Figure_2_Conceptual_Framework.png'))
+            print("Figure 2 生成成功。")
+        else:
+            print("Figure 2 生成失败 (未找到源文件)。")
+    except Exception as e:
+        print(f"Figure 2 生成出错: {e}")
+    print("正在生成 Figure 3 (ROC Curves)...")
+    try:
+        roc_path = draw_roc_combined(os.path.join(OUTPUT_DIR, 'Figure_3_ROC_Curves.png'))
+        if os.path.exists(roc_path):
+            print("Figure 3 生成成功。")
+        else:
+            print("Figure 3 生成失败。")
+    except Exception as e:
+        print(f"Figure 3 生成出错: {e}")
+    print("正在生成 Figure 4 (Forest Plot)...")
+    try:
+        cohort_b_path = r'Cohort_B_Depression_to_Comorbidity/06_subgroup/subgroup_analysis_results.csv'
+        cohort_c_path = r'Cohort_C_Cognition_to_Comorbidity/06_subgroup/subgroup_analysis_results.csv'
+        if os.path.exists(cohort_b_path) and os.path.exists(cohort_c_path):
+            df_b = pd.read_csv(cohort_b_path)
+            df_c = pd.read_csv(cohort_c_path)
+            relevant_subgroups = ['Residence', 'Age_Group', 'Gender']
+            df_b = df_b[df_b['Subgroup'].isin(relevant_subgroups)].copy()
+            df_c = df_c[df_c['Subgroup'].isin(relevant_subgroups)].copy()
+            df_b['Cohort'] = 'Cohort B (Depression)'
+            df_c['Cohort'] = 'Cohort C (Cognition)'
+            df_combined = pd.concat([df_b, df_c])
+            df_combined['Label'] = df_combined['Subgroup'] + ': ' + df_combined['Value']
+            df_combined = df_combined.sort_values(['Cohort', 'Subgroup', 'Value'])
+            plt.figure(figsize=(12, 8))
+            sns.pointplot(x='CATE', y='Label', hue='Cohort', data=df_combined, 
+                          join=False, dodge=0.4, markers=['o', 's'], capsize=0.2,
+                          palette={'Cohort B (Depression)': '#d62728', 'Cohort C (Cognition)': '#1f77b4'})
+            plt.axvline(0, color='grey', linestyle='--')
+            plt.title('Figure 4. Heterogeneous Treatment Effects (Exercise) by Subgroup')
+            plt.xlabel('Estimated CATE (Risk Difference)')
+            plt.ylabel('Subgroup')
+            plt.grid(True, alpha=0.3)
+            plt.tight_layout()
+            plt.savefig(os.path.join(OUTPUT_DIR, 'Figure_4_Forest_Plot.png'), dpi=300)
+            plt.close()
+            print("Figure 4 生成成功。")
+        else:
+            print("Figure 4 生成失败 (未找到亚组分析结果文件)。")
+    except Exception as e:
+        print(f"Figure 4 生成出错: {e}")
+    print("正在生成 Figure 5 (SHAP Summary)...")
+    try:
+        src_shap = r'Cohort_B_Depression_to_Comorbidity/02_shap/fig5a_shap_summary_is_comorbidity_next.png'
+        if os.path.exists(src_shap):
+            shutil.copy(src_shap, os.path.join(OUTPUT_DIR, 'Figure_5_SHAP_Summary.png'))
+            print("Figure 5 生成成功。")
+        else:
+            print(f"Figure 5 生成失败 (未找到 SHAP 图像: {src_shap})。")
+    except Exception as e:
+        print(f"Figure 5 生成出错: {e}")
+    print("正在生成 Figure 6 (DCA)...")
+    try:
+        src_dca = r'Cohort_B_Depression_to_Comorbidity/04_eval/fig3_clinical_evaluation_comprehensive.png'
+        if os.path.exists(src_dca):
+            shutil.copy(src_dca, os.path.join(OUTPUT_DIR, 'Figure_6_DCA_Calibration_PR.png'))
+            print("Figure 6 (Clinical Evaluation) 生成成功。")
+        else:
+            print(f"Figure 6 生成失败 (未找到 DCA 图像: {src_dca})。")
+    except Exception as e:
+        print(f"Figure 6 生成出错: {e}")
+    print(f"\n>>> 所有图表更新完成！请查看目录: {OUTPUT_DIR}")
+if __name__ == "__main__":
+    run_update()

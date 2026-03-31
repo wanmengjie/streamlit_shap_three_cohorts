@@ -1,0 +1,33 @@
+# charls_missing_feature_audit.py (Original: 40 lines, Cleaned: 32 lines)
+import pandas as pd
+import numpy as np
+import os
+import matplotlib.pyplot as plt
+import seaborn as sns
+import logging
+logger = logging.getLogger(__name__)
+def run_missing_audit(output_dir='evaluation_results/missing_audit'):
+    os.makedirs(output_dir, exist_ok=True)
+    df = pd.read_csv('CHARLS.csv')
+    missing = df.isnull().mean().sort_values(ascending=False)
+    missing = missing[missing > 0]
+    plt.figure(figsize=(12, 6))
+    missing.head(30).plot(kind='bar', color='skyblue')
+    plt.title('Top 30 Features by Missing Proportion (Figure S1)', fontsize=14)
+    plt.ylabel('Proportion of Missing Values')
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, 'figS1_missing_audit.png'), dpi=300)
+    plt.close()
+    logger.info(f"✅ 缺失值审计图已生成：{output_dir}")
+def run_feature_distribution(df, output_dir='evaluation_results/distributions'):
+    os.makedirs(output_dir, exist_ok=True)
+    Y = 'is_comorbidity_next'
+    vars_to_plot = ['age', 'bmi', 'total_cognition', 'cesd10', 'income_total', 'family_size']
+    for var in vars_to_plot:
+        if var in df.columns:
+            plt.figure(figsize=(8, 6))
+            sns.violinplot(x=Y, y=var, data=df, palette='Set2', split=True)
+            plt.title(f'Distribution of {var} by Comorbidity Status (Figure S7)')
+            plt.savefig(os.path.join(output_dir, f'figS7_dist_{var}.png'), dpi=300)
+            plt.close()
+    logger.info(f"✅ 特征分布图已生成：{output_dir}")

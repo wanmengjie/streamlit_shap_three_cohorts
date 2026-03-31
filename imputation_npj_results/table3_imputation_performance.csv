@@ -1,0 +1,7 @@
+﻿Method,NRMSE_mean,NRMSE_sd,SD_ratio_mean,Mean_diff_ratio_mean,Mean_diff_acceptable
+Mean,1.0013,0.0023,0.0,0.0197,True
+Median,1.0305,0.0494,0.0,0.1909,False
+LinearRegression,0.8995,0.0798,0.4752,0.0264,True
+BayesianRidge,0.8875,0.0954,0.4617,0.0214,True
+KNN,1.0105,0.0974,0.4774,0.0311,True
+MissForest,0.8905,0.1278,0.5526,0.0408,True

@@ -1,0 +1,50 @@
+import sys, os
+_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _root not in sys.path:
+    sys.path.insert(0, _root)
+import pandas as pd
+from data.charls_complete_preprocessing import preprocess_charls_data
+from data.charls_table1_stats import generate_baseline_table
+
+def regenerate_table1():
+    print("Regenerating Table 1...")
+    
+    # 1. Load data
+    print("Loading and preprocessing data...")
+    df_clean = preprocess_charls_data('CHARLS.csv')
+    
+    # 2. Check for 0s in critical columns
+    cols = ['bmi', 'mwaist', 'systo', 'diasto']
+    for col in cols:
+        if col in df_clean.columns:
+            n_zeros = (df_clean[col] == 0).sum()
+            print(f"{col} zeros: {n_zeros}")
+            if n_zeros > 0:
+                print(f"WARNING: {col} has {n_zeros} zeros! Replacing with NaN.")
+                df_clean[col] = df_clean[col].replace(0, pd.NA)
+    
+    # 3. Define output directory
+    output_dir = 'FINAL_PAPER_TABLES'
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+        
+    # 4. Remove existing file if it exists
+    csv_path = os.path.join(output_dir, 'Table_1_Baseline_Characteristics.csv')
+    if os.path.exists(csv_path):
+        print(f"Removing existing {csv_path}...")
+        os.remove(csv_path)
+        
+    # 5. Generate Table 1
+    print("Generating Table 1...")
+    generate_baseline_table(df_clean, output_dir=output_dir)
+    
+    # 6. Verify content
+    print("Verifying generated file content...")
+    if os.path.exists(csv_path):
+        df_table1 = pd.read_csv(csv_path)
+        print(df_table1[df_table1['Variable'].isin(['BMI', 'Waist circumference, cm', 'SBP, mmHg', 'DBP, mmHg'])])
+    else:
+        print("Error: File was not generated.")
+
+if __name__ == "__main__":
+    regenerate_table1()

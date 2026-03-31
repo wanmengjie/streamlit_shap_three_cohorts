@@ -1,0 +1,9 @@
+Treatment: lgrip_high_vs_low
+ATE (point estimate): -0.0379
+95% CI: (-0.2098, 0.1339)
+90% CI: (-0.1822, 0.1063)
+N: 1270
+Overlap trimming (PS not in [0.05,0.95]): 81 excluded (6.4%)
+E-Value (point): 1.81
+E-Value (conservative, from 95%% CI): 0.49
+  (Unmeasured confounder would need RR≥E with both T and Y to explain away the effect)

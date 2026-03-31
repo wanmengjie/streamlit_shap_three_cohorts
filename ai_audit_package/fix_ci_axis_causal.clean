@@ -1,0 +1,27 @@
+# fix_ci_axis_causal.py (Original: 42 lines, Cleaned: 26 lines)
+import pandas as pd
+import numpy as np
+import os
+import logging
+from charls_recalculate_causal_impact import estimate_causal_impact
+from charls_sensitivity_analysis import run_sensitivity_analysis
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+def run_fix():
+    try:
+        data_path = 'preprocessed_data/CHARLS_final_preprocessed.csv'
+        if not os.path.exists(data_path):
+            raise FileNotFoundError(f"找不到预处理数据: {data_path}")
+        df = pd.read_csv(data_path)
+        logger.info(f">>> 开始认知障碍轴 (CI Axis) 的修复计算...")
+        output_causal = 'causal_results/ci_axis_fixed'
+        df_res_ci = estimate_causal_impact(df.copy(), treatment_col='is_cognitive_impairment', output_dir=output_causal)
+        if df_res_ci is not None:
+            run_sensitivity_analysis(df_res_ci, output_dir='evaluation_results/sensitivity')
+            new_ate = df_res_ci['causal_impact_is_cognitive_impairment'].mean()
+            logger.info(f"🎉 修复完成！新的 ATE: {new_ate:.4f}")
+            print(f"✅ 认知障碍轴修复成功！新的 ATE 值为 {new_ate:.4f}")
+    except Exception as e:
+        logger.error(f"💥 修复过程失败: {e}", exc_info=True)
+if __name__ == "__main__":
+    run_fix()

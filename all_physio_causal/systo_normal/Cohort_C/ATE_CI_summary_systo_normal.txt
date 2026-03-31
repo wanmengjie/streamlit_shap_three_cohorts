@@ -1,0 +1,9 @@
+Treatment: systo_normal
+ATE (point estimate): 0.0506
+95% CI: (-0.8588, 0.9599)
+90% CI: (-0.7126, 0.8137)
+N: 2435
+Overlap trimming (PS not in [0.05,0.95]): 1930 excluded (79.3%)
+E-Value (point): 1.82
+E-Value (conservative, from 95%% CI): 0.33
+  (Unmeasured confounder would need RR≥E with both T and Y to explain away the effect)

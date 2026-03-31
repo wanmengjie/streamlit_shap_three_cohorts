@@ -1,0 +1,42 @@
+# plot_snakes_typed.py (Original: 161 lines, Cleaned: 41 lines)
+from __future__ import (absolute_import, division, print_function)
+import numpy as np
+from sklearn.preprocessing import label_binarize
+from sklearn.metrics import confusion_matrix, accuracy_score
+from pystruct.learners import OneSlackSSVM
+from pystruct.datasets import load_snakes
+from pystruct.utils import make_grid_edges, edge_list_to_features
+from pystruct.models import NodeTypeEdgeFeatureGraphCRF
+from plot_snakes import  one_hot_colors, neighborhood_feature, prepare_data
+def convertToSingleTypeX(X):
+    return [([nf], [e], [ef]) for (nf,e,ef) in X]
+if __name__ == '__main__':
+    print("Please be patient. Learning will take 5-20 minutes.")
+    snakes = load_snakes()
+    X_train, Y_train = snakes['X_train'], snakes['Y_train']
+    X_train = [one_hot_colors(x) for x in X_train]
+    Y_train_flat = [y_.ravel() for y_ in Y_train]
+    X_train_directions, X_train_edge_features = prepare_data(X_train)
+    inference = 'ad3+'
+    crf = NodeTypeEdgeFeatureGraphCRF(1, [11], [45], [[2]], inference_method=inference)
+    ssvm = OneSlackSSVM(crf, inference_cache=50, C=.1, tol=.1,  max_iter=100,
+                        n_jobs=1)
+    ssvm.fit(convertToSingleTypeX(X_train_directions), Y_train_flat)
+    X_test, Y_test = snakes['X_test'], snakes['Y_test']
+    X_test = [one_hot_colors(x) for x in X_test]
+    Y_test_flat = [y_.ravel() for y_ in Y_test]
+    X_test_directions, X_test_edge_features = prepare_data(X_test)
+    Y_pred = ssvm.predict( convertToSingleTypeX(X_test_directions) )
+    print("Results using only directional features for edges")
+    print("Test accuracy: %.3f"
+          % accuracy_score(np.hstack(Y_test_flat), np.hstack(Y_pred)))
+    print(confusion_matrix(np.hstack(Y_test_flat), np.hstack(Y_pred)))
+    crf = NodeTypeEdgeFeatureGraphCRF(1, [11], [45], [[180]], inference_method=inference)
+    ssvm = OneSlackSSVM(crf, inference_cache=50, C=.1, tol=.1,
+                        n_jobs=8)
+    ssvm.fit( convertToSingleTypeX(X_train_edge_features), Y_train_flat)
+    Y_pred2 = ssvm.predict( convertToSingleTypeX(X_test_edge_features) )
+    print("Results using also input features for edges")
+    print("Test accuracy: %.3f"
+          % accuracy_score(np.hstack(Y_test_flat), np.hstack(Y_pred2)))
+    print(confusion_matrix(np.hstack(Y_test_flat), np.hstack(Y_pred2)))

@@ -1,0 +1,9 @@
+Treatment: srh_good
+ATE (point estimate): 0.0123
+95% CI: (-0.0429, 0.0675)
+90% CI: (-0.0340, 0.0586)
+N: 8828
+Overlap trimming (PS not in [0.05,0.95]): 18 excluded (0.2%)
+E-Value (point): 2.25
+E-Value (conservative, from 95%% CI): 0.45
+  (Unmeasured confounder would need RR≥E with both T and Y to explain away the effect)

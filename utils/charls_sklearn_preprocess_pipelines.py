@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 Shared sklearn preprocessing for numeric features: IterativeImputer (MICE-style) inside Pipeline
-branches, combined with StandardScaler for continuous columns — mirrors compare_models layout.
+branches, combined with StandardScaler for CONTINUOUS_FOR_SCALING only;
+adlab_c / iadl / family_size stay impute-only (see ORDINAL_COUNT_IMPUTE_ONLY) — mirrors compare_models layout.
 
 Import order: enable_iterative_imputer must be loaded before IterativeImputer.
 """

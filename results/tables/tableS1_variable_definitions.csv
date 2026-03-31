@@ -1,0 +1,23 @@
+Variable Category,Variable Name,Definition / Question in CHARLS,Coding
+Outcome,Incident Comorbidity,Co-occurrence of CES-D≥10 AND Cognition Score ≤10 in the next wave,"0=No, 1=Yes"
+Treatment,Regular Exercise,"Do you engage in moderate physical activity for at least 10 minutes?","0=No/Less than weekly, 1=Yes (≥3 days/week)"
+Covariates,Age,Self-reported age at baseline,Continuous (Years)
+,Education,Highest level of education attained,"1=Illiterate, 2=Primary, 3=Middle, 4=High School+"
+,Chronic Disease Burden,"Count of 14 physician-diagnosed chronic conditions (hypertension, diabetes, cancer, etc.)",Continuous (0-14)
+,Grip Strength,Average of two measurements from the dominant hand,Continuous (kg)
+,Sleep Duration,"How many hours of actual sleep did you get at night?",Continuous (hours)
+,CES-D-10,Center for Epidemiologic Studies Depression Scale (10 items),Continuous (0-30)
+,Cognition Score,Composite of episodic memory and mental status (Telephone Interview for Cognitive Status),Continuous (0-21)
+,Sex,Biological sex,"0=Male, 1=Female"
+,Residence,Urban or rural residence,"0=Urban, 1=Rural"
+,Marital Status,Marital status,"0=Married/Partnered, 1=Widowed/Separated/Divorced/Never Married"
+,Smoking Status,Current smoking status,"0=Non-smoker, 1=Current smoker"
+,Drinking Status,Current drinking status,"0=Non-drinker, 1=Current drinker"
+,BMI,Body Mass Index (weight in kg / height in m²),Continuous (kg/m²)
+,Systolic BP,Systolic blood pressure,Continuous (mmHg)
+,Diastolic BP,Diastolic blood pressure,Continuous (mmHg)
+,Pulse,Pulse rate,Continuous (beats/min)
+,ADL Difficulty,Count of difficulties in Activities of Daily Living,Continuous (0-6)
+,IADL Difficulty,Count of difficulties in Instrumental Activities of Daily Living,Continuous (0-5)
+,Walking Speed,Time to walk 2.5 meters (converted to speed),Continuous (m/s)
+,Social Isolation,Social isolation index (based on living arrangement and social contact),"0=Not isolated, 1=Isolated"

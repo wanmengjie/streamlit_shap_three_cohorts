@@ -1,0 +1,7 @@
+Imputation Methodology Justification (for Methods section)
+============================================================
+
+Little's MCAR test rejected the null hypothesis (p=0.0000), indicating that missingness is not completely at random (MCAR). This supports the use of multivariate imputation (MICE/MissForest) that accounts for MAR (Missing At Random) mechanisms, thereby reducing bias.
+
+Suggested Methods text:
+"Due to rejected MCAR assumption (Little's test p<0.05), we employed chain-equation multiple imputation (MICE) / machine-learning imputation (MissForest) to reduce bias under MAR."

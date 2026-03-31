@@ -1,0 +1,9 @@
+Treatment: diasto_normal
+ATE (point estimate): 0.0419
+95% CI: (-3.4499, 3.5336)
+90% CI: (-2.8885, 2.9722)
+N: 3123
+Overlap trimming (PS not in [0.05,0.95]): 2693 excluded (86.2%)
+E-Value (point): 1.91
+E-Value (conservative, from 95%% CI): 0.17
+  (Unmeasured confounder would need RR≥E with both T and Y to explain away the effect)

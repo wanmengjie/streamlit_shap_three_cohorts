@@ -1,0 +1,248 @@
+# charls_imputation_experiment.py (Original: 396 lines, Cleaned: 247 lines)
+# -*- coding: utf-8 -*-
+import os
+import logging
+import pandas as pd
+import numpy as np
+from sklearn.impute import SimpleImputer
+from sklearn.experimental import enable_iterative_imputer
+from sklearn.impute import IterativeImputer
+from sklearn.linear_model import LinearRegression
+from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import roc_auc_score
+from scipy import stats
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+RANDOM_SEED = 500
+TIER0 = ['is_comorbidity_next', 'is_depression', 'is_cognitive_impairment',
+         'is_comorbidity']  # cesd10/total_cognition 在预处理中已剔除
+TIER1 = ['exercise', 'sleep', 'smokev', 'drinkev', 'bmi']
+TIER2 = ['age', 'systo', 'edu', 'lgrip']
+TIER3 = ['pulse', 'family_size', 'marry']
+IMPUTABLE_COLS = list(dict.fromkeys(TIER1 + TIER2 + TIER3))
+MICE_MAX_ITER = 5
+RF_N_ESTIMATORS = 100
+RF_TOP_K_AUX = 5
+def stratified_impute_mice(df_sub, cols=None, max_iter=5, random_state=RANDOM_SEED):
+    df = df_sub.copy()
+    cols = cols or IMPUTABLE_COLS
+    cols_to_imp = [c for c in cols if c in df.columns and df[c].isna().any()]
+    if not cols_to_imp:
+        return df
+    X_num = df[cols_to_imp].select_dtypes(include=[np.number])
+    if X_num.empty or X_num.shape[1] == 0:
+        return df
+    imp = IterativeImputer(
+        estimator=LinearRegression(),
+        max_iter=max_iter,
+        random_state=random_state,
+        sample_posterior=False
+    )
+    filled = imp.fit_transform(X_num)
+    df[X_num.columns] = filled
+    return df
+def stratified_impute_rf(df_sub, n_estimators=100, top_k_aux=5, random_state=RANDOM_SEED):
+    df = df_sub.copy()
+    cols_to_imp = [c for c in IMPUTABLE_COLS if c in df.columns and df[c].isna().any()]
+    if not cols_to_imp:
+        return df
+    aux = [c for c in IMPUTABLE_COLS if c in df.columns and c not in cols_to_imp]
+    aux = [c for c in aux if df[c].notna().all()]  # 辅助变量需无缺失
+    for col in cols_to_imp:
+        if df[col].notna().all():
+            continue
+        if col not in df.columns:
+            continue
+        cand = [c for c in df.select_dtypes(include=[np.number]).columns
+                if c != col and c not in TIER0 and df[c].notna().all()]
+        if len(cand) < 2:
+            continue
+        corr = df[cand].corrwith(df[col].fillna(df[col].median()))
+        corr = corr.abs().sort_values(ascending=False)
+        use_cols = corr.head(top_k_aux).index.tolist()
+        mask = df[col].isna()
+        if mask.sum() == 0:
+            continue
+        X_train = df.loc[~mask, use_cols]
+        y_train = df.loc[~mask, col]
+        X_miss = df.loc[mask, use_cols]
+        if X_train.isna().any().any() or X_miss.isna().any().any():
+            continue
+        if df[col].dtype in [np.float64, np.int64] and df[col].nunique() > 5:
+            model = RandomForestRegressor(n_estimators=n_estimators, random_state=random_state)
+            model.fit(X_train, y_train)
+            df.loc[mask, col] = model.predict(X_miss)
+        else:
+            model = RandomForestClassifier(n_estimators=n_estimators, random_state=random_state)
+            model.fit(X_train, y_train.astype(int))
+            df.loc[mask, col] = model.predict(X_miss)
+    return df
+def run_experimental_stratified(df_full, cohort_col='baseline_group'):
+    out_dfs = []
+    for g in [0, 1, 2]:
+        df_sub = df_full[df_full[cohort_col] == g].copy()
+        if len(df_sub) < 50:
+            continue
+        tier1_cols = [c for c in TIER1 if c in df_sub.columns]
+        if tier1_cols:
+            df_sub = stratified_impute_mice(df_sub, cols=tier1_cols, max_iter=5)
+        tier23 = [c for c in TIER2 + TIER3 if c in df_sub.columns]
+        if tier23:
+            imp = SimpleImputer(strategy='median')
+            df_sub[tier23] = imp.fit_transform(df_sub[tier23])
+        out_dfs.append(df_sub)
+    return pd.concat(out_dfs, ignore_index=True) if out_dfs else df_full.copy()
+def run_unified_mice(df_full):
+    cols = [c for c in IMPUTABLE_COLS if c in df_full.columns and df_full[c].isna().any()]
+    if not cols:
+        return df_full.copy()
+    df = df_full.copy()
+    X = df[cols].select_dtypes(include=[np.number])
+    if X.empty:
+        return df
+    imp = IterativeImputer(estimator=LinearRegression(), max_iter=5, random_state=RANDOM_SEED)
+    df[X.columns] = imp.fit_transform(X)
+    return df
+def run_unified_simple(df_full):
+    df = df_full.copy()
+    cols = [c for c in IMPUTABLE_COLS if c in df.columns and df[c].isna().any()]
+    if not cols:
+        return df
+    imp = SimpleImputer(strategy='median')
+    df[cols] = imp.fit_transform(df[cols])
+    return df
+def run_complete_case(df_full):
+    cols = [c for c in IMPUTABLE_COLS if c in df_full.columns]
+    if not cols:
+        return df_full.copy()
+    return df_full.dropna(subset=cols).copy()
+def validate_distribution(original, imputed, cols):
+    results = []
+    for c in cols:
+        if c not in original.columns or c not in imputed.columns:
+            continue
+        orig = original[c].dropna()
+        imp = imputed[c]
+        if len(orig) < 10 or len(imp) < 10:
+            continue
+        try:
+            _, p = stats.ks_2samp(orig, imp)
+            results.append({'Variable': c, 'KS_p': p, 'Pass': p > 0.05})
+        except Exception:
+            results.append({'Variable': c, 'KS_p': np.nan, 'Pass': False})
+    return pd.DataFrame(results)
+def validate_correlation(original, imputed, cols):
+    cols = [c for c in cols if c in original.columns and c in imputed.columns]
+    if len(cols) < 2:
+        return np.nan
+    try:
+        corr_orig = original[cols].corr().fillna(0).values
+        corr_imp = imputed[cols].corr().fillna(0).values
+        diff = np.linalg.norm(corr_orig - corr_imp, 'fro')
+        return diff
+    except Exception:
+        return np.nan
+def validate_outliers(imputed, cols):
+    results = []
+    for c in cols:
+        if c not in imputed.columns:
+            continue
+        s = imputed[c].dropna()
+        if len(s) < 10:
+            continue
+        q1, q3 = s.quantile(0.25), s.quantile(0.75)
+        iqr = q3 - q1
+        if iqr == 0:
+            continue
+        low, high = q1 - 1.5 * iqr, q3 + 1.5 * iqr
+        out_pct = ((s < low) | (s > high)).mean() * 100
+        results.append({'Variable': c, 'Outlier_pct': out_pct})
+    return pd.DataFrame(results) if results else pd.DataFrame()
+def compute_auc(df, target_col='is_comorbidity_next', n_splits=5):
+    exclude = TIER0 + [target_col]
+    X_cols = [c for c in df.columns if c not in exclude and df[c].dtype in [np.float64, np.int64]]
+    X = df[X_cols].copy()
+    y = df[target_col].astype(int)
+    if X.shape[1] < 3 or len(X) < 50:
+        return np.nan
+    X = X.fillna(X.median())
+    aucs = []
+    for seed in range(n_splits):
+        X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.3, random_state=RANDOM_SEED + seed)
+        rf = RandomForestClassifier(n_estimators=100, max_depth=5, random_state=RANDOM_SEED)
+        rf.fit(X_tr, y_tr)
+        aucs.append(roc_auc_score(y_te, rf.predict_proba(X_te)[:, 1]))
+    return np.mean(aucs)
+def compute_ate_simple(df, treatment_col='exercise', target_col='is_comorbidity_next'):
+    if treatment_col not in df.columns or target_col not in df.columns:
+        return np.nan
+    from sklearn.linear_model import LinearRegression
+    exclude = TIER0 + [target_col, treatment_col]
+    W = [c for c in df.columns if c not in exclude and c in df.columns and df[c].dtype in [np.float64, np.int64]]
+    use_cols = [treatment_col] + W[:10]  # 限制协变量避免过拟合
+    if treatment_col not in df.columns:
+        return np.nan
+    X = df[use_cols].copy().fillna(df[use_cols].median())
+    y = df[target_col].astype(float)
+    mask = X.notna().all(axis=1) & y.notna()
+    if mask.sum() < 50:
+        return np.nan
+    model = LinearRegression().fit(X[mask], y[mask])
+    return model.coef_[0]  # ATE 近似
+def run_imputation_experiment(df_full, output_dir='imputation_experiment_results'):
+    os.makedirs(output_dir, exist_ok=True)
+    logger.info(">>> 启动缺失值插补实验...")
+    tier0_in_data = [c for c in TIER0 if c in df_full.columns]
+    df = df_full.dropna(subset=tier0_in_data).copy() if tier0_in_data else df_full.copy()
+    n_orig = len(df)
+    logger.info(f"基线样本量: {n_orig}")
+    groups = {
+        'Experimental': run_experimental_stratified(df),
+        'Unified_MICE': run_unified_mice(df),
+        'Unified_Simple': run_unified_simple(df),
+        'Complete_Case': run_complete_case(df),
+    }
+    summary_rows = []
+    cols_valid = [c for c in IMPUTABLE_COLS if c in df.columns]
+    for group_name, df_imp in groups.items():
+        n = len(df_imp)
+        dist_df = validate_distribution(df, df_imp, cols_valid)
+        ks_pass_mean = dist_df['Pass'].mean() if len(dist_df) > 0 else np.nan
+        corr_diff = validate_correlation(df, df_imp, cols_valid)
+        out_df = validate_outliers(df_imp, cols_valid)
+        out_mean = out_df['Outlier_pct'].mean() if len(out_df) > 0 else np.nan
+        auc = compute_auc(df_imp, target_col='is_comorbidity_next')
+        ate = compute_ate_simple(df_imp, treatment_col='exercise', target_col='is_comorbidity_next')
+        summary_rows.append({
+            'Group': group_name,
+            'N': n,
+            'KS_pass_rate': round(ks_pass_mean, 3) if not np.isnan(ks_pass_mean) else np.nan,
+            'Corr_diff_Frobenius': round(corr_diff, 4) if not np.isnan(corr_diff) else np.nan,
+            'Outlier_pct_mean': round(out_mean, 2) if not np.isnan(out_mean) else np.nan,
+            'AUC_mean': round(auc, 4) if not np.isnan(auc) else np.nan,
+            'ATE_exercise': round(ate, 4) if not np.isnan(ate) else np.nan,
+        })
+        if output_dir:
+            out_path = os.path.join(output_dir, f'imputed_{group_name}.csv')
+            df_imp.to_csv(out_path, index=False, encoding='utf-8-sig')
+            logger.info(f"  已保存: {out_path}")
+    summary_df = pd.DataFrame(summary_rows)
+    summary_path = os.path.join(output_dir, 'imputation_experiment_summary.csv')
+    summary_df.to_csv(summary_path, index=False, encoding='utf-8-sig')
+    logger.info(f"✅ 插补实验汇总表已保存: {summary_path}")
+    return summary_df, groups
+SUMMARY_TEMPLATE = 
+if __name__ == '__main__':
+    from charls_complete_preprocessing import preprocess_charls_data
+    from run_multi_exposure_causal import prepare_exposures
+    df = preprocess_charls_data('CHARLS.csv', age_min=60, write_output=False)
+    if df is None:
+        logger.error("预处理失败，退出")
+        exit(1)
+    prepare_exposures(df)
+    summary_df, groups = run_imputation_experiment(df, output_dir='imputation_experiment_results')
+    print("\n" + "=" * 60)
+    print("插补实验汇总表")
+    print("=" * 60)
+    print(summary_df.to_string(index=False))

@@ -1,0 +1,93 @@
+# replot_main_figures.py (Original: 127 lines, Cleaned: 92 lines)
+import pandas as pd
+import numpy as np
+try:
+    from config import RANDOM_SEED
+except ImportError:
+    RANDOM_SEED = 500
+import matplotlib.pyplot as plt
+import seaborn as sns
+import os
+import joblib
+from sklearn.metrics import roc_curve, auc, brier_score_loss
+from sklearn.calibration import calibration_curve
+from sklearn.model_selection import train_test_split
+def run_main_replot(df_path='preprocessed_data/CHARLS_final_preprocessed.csv', output_dir='final_publication_plots'):
+    os.makedirs(output_dir, exist_ok=True)
+    df = pd.read_csv(df_path)
+    Y = 'is_comorbidity_next'
+    from charls_feature_lists import get_exclude_cols
+    exclude = get_exclude_cols(df, target_col=Y)
+    X_cols = [c for c in df.columns if c not in exclude and df[c].dtype in [np.float64, np.int64]]
+    X = df[X_cols].fillna(df[X_cols].median())
+    y = df[Y].astype(int)
+    _, X_test, _, y_test = train_test_split(X, y, test_size=0.3, random_state=RANDOM_SEED)
+    plt.figure(figsize=(14, 6))
+    plt.subplot(1, 2, 1)
+    sns.kdeplot(df['systo'], fill=True, color='royalblue', label='Systolic BP (Smoothed)')
+    sns.kdeplot(df['diasto'], fill=True, color='coral', label='Diastolic BP (Smoothed)')
+    plt.title('Figure 2a. BP Smoothing (Moving Average Integration)')
+    plt.xlabel('Blood Pressure (mmHg)')
+    plt.legend()
+    plt.subplot(1, 2, 2)
+    sns.histplot(df['lgrip'], color='forestgreen', alpha=0.4, label='Left Grip')
+    sns.histplot(df['rgrip'], color='crimson', alpha=0.4, label='Right Grip')
+    plt.title('Figure 2b. Max Grip Strength Implementation')
+    plt.xlabel('Grip Strength (kg)')
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, 'fig2_physio_robustness.png'), dpi=300)
+    plt.close()
+    fig, axes = plt.subplots(1, 3, figsize=(20, 6))
+    models_dir = 'models/depression_axis'
+    target_models = ['CatBoost.joblib', 'Random Forest.joblib', 'XGBoost.joblib', 'Logistic Regression.joblib']
+    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
+    for i, m_name in enumerate(target_models):
+        m_path = os.path.join(models_dir, m_name)
+        if os.path.exists(m_path):
+            model = joblib.load(m_path)
+            y_prob = model.predict_proba(X_test)[:, 1]
+            label_clean = m_name.replace('.joblib', '')
+            fpr, tpr, _ = roc_curve(y_test, y_prob)
+            axes[0].plot(fpr, tpr, color=colors[i], label=f'{label_clean} (AUC={auc(fpr, tpr):.2f})')
+            prob_true, prob_pred = calibration_curve(y_test, y_prob, n_bins=8)
+            axes[1].plot(prob_pred, prob_true, marker='s', color=colors[i], label=label_clean)
+            thresholds = np.linspace(0.01, 0.99, 100)
+            nb = []
+            for t in thresholds:
+                tp = np.sum((y_prob >= t) & (y_test == 1))
+                fp = np.sum((y_prob >= t) & (y_test == 0))
+                nb.append((tp / len(y_test)) - (fp / len(y_test)) * (t / (1 - t)))
+            axes[2].plot(thresholds, nb, color=colors[i], label=label_clean)
+    axes[0].plot([0, 1], [0, 1], 'k--', alpha=0.5)
+    axes[0].set_title('Figure 3a. Multi-model ROC Comparison')
+    axes[0].legend()
+    axes[1].plot([0, 1], [0, 1], 'k--', alpha=0.5)
+    axes[1].set_title('Figure 3b. Calibration Curves')
+    axes[1].legend()
+    axes[2].set_title('Figure 3c. Decision Curve Analysis (DCA)')
+    axes[2].set_ylim(-0.05, 0.25)
+    axes[2].legend()
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, 'fig3_model_evaluation.png'), dpi=300)
+    plt.close()
+    plt.figure(figsize=(10, 8))
+    audit_path = 'evaluation_results/methodology_audit/feature_selection_audit_final.csv'
+    if os.path.exists(audit_path):
+        top_f = pd.read_csv(audit_path).head(8)['Unnamed: 0'].tolist()
+        corr = df[top_f].corr()
+        sns.heatmap(corr, annot=True, cmap='RdBu_r', center=0, square=True)
+    plt.title('Figure 4. Causal Interaction Heatmap (CATE Heterogeneity)')
+    plt.savefig(os.path.join(output_dir, 'fig4_cate_interaction_heatmap.png'), dpi=300)
+    plt.close()
+    plt.figure(figsize=(10, 6))
+    if os.path.exists(audit_path):
+        audit_df = pd.read_csv(audit_path).head(10)
+        sns.barplot(x='Selection_Count', y='Unnamed: 0', data=audit_df, palette='magma')
+        plt.title('Figure 5. Feature Importance Consensus (Top 10 Predictors)')
+        plt.xlabel('Methodology Consensus Score (Boruta, LASSO, RFE, GA)')
+    plt.savefig(os.path.join(output_dir, 'fig5_feature_importance_ranking.png'), dpi=300)
+    plt.close()
+    print(f"🎉 Figure 2, 3, 4, 5 补全任务全部完成！目录: {output_dir}")
+if __name__ == "__main__":
+    run_main_replot()

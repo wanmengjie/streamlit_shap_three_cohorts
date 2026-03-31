@@ -1049,3 +1049,17 @@ else:
 **Correct**:
 - **每一列**先 **`astype(str)`**，循环剥离外层 **`^\[(.*)\]$`**（最多 4 次防嵌套），再 **`pd.to_numeric(..., errors="coerce")`**，**`np.nan_to_num`** 写入 **`float64` ndarray**，重建 **`DataFrame`**；在 **`_build_explainer`** 入口对 **`X_bg`** 再调用一次 **`_coerce_float_matrix_for_shap`** 作兜底。
 - **参考**：`streamlit_shap_three_cohorts.py` 中 **`_coerce_float_matrix_for_shap`**、**`_build_explainer`**。
+- **若仍报同类错（Cloud）**：**`ColumnTransformer`** 输出 **稀疏矩阵** 进 **`pd.DataFrame`** 时可能产生非纯 float 路径；在 **`_preprocessor_transform_to_df`** 里 **`issparse` → `toarray()`**；**`TreeExplainer` / `shap_values`** 传入 **`np.ascontiguousarray(..., float64)`** 而非 **`DataFrame`**；标量用 **`_coerce_scalar_for_shap`**（含全角 **`［］`** 等括号）。
+
+**2026-03-31 `adlab_c` / `iadl`：有序计分不做 StandardScaler**
+- **处理**：从 **`CONTINUOUS_FOR_SCALING`** 移除，新增文档元组 **`ORDINAL_COUNT_IMPUTE_ONLY = ('adlab_c', 'iadl')`**；**`build_numeric_column_transformer`** 中二者走 **`pass`** 分支（**仅 IterativeImputer**），与 CPM **`compare_models`** 一致。
+- **后果**：已保存的 **`champion_model.joblib`** 若按旧 Pipeline（曾缩放这两列）训练，与当前代码 **不一致**；需 **重跑各队列 `compare_models` / 预测步** 并 **覆盖 champion** 后再部署 Streamlit / 论文数值。
+- **同步**：**`charls_cate_visualization.py`** 对协变量缩放列改为 **`import CONTINUOUS_FOR_SCALING`**，避免与主列表漂移。
+
+**2026-03-31 `family_size`：有序家庭人数，不 StandardScaler**
+- **处理**：自 **`CONTINUOUS_FOR_SCALING`** 移除，并入 **`ORDINAL_COUNT_IMPUTE_ONLY`**（与 `adlab_c`、`iadl` 同 pass 分支）。**需重训 champion** 后与代码一致。
+
+**2026-03-31 重训 CPM：`MAIN_COHORT_CAUSAL_ONLY`**
+- **`config.MAIN_COHORT_CAUSAL_ONLY=True`** 时 **`run_all_charls_analyses`** 跳过 **`compare_models`/SHAP/临床评价** 等，**不写** 新 **`champion_model.joblib`**。
+- **重训**：设 **`MAIN_COHORT_CAUSAL_ONLY=False`**，跑完整三队列（**`RUN_IMPUTATION_BEFORE_MAIN=False`** 可跳过 bulk 重插补）；结束后 **`LIU_JUE_STRATEGIC_SUMMARY/.../01_prediction/champion_model.joblib`** 与 **`results/models/champion_cohort*.joblib`** 由 consolidate 同步。
+- **日常因果迭代**：重训完成后可把 **`MAIN_COHORT_CAUSAL_ONLY`** 改回 **`True`** 以缩短运行时间。

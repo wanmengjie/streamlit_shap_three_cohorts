@@ -1,0 +1,66 @@
+# charls_ci_utils.py (Original: 80 lines, Cleaned: 65 lines)
+import numpy as np
+from sklearn.metrics import roc_auc_score, accuracy_score, f1_score, precision_score, recall_score, brier_score_loss, average_precision_score
+from sklearn.utils import resample
+def get_metrics_with_ci(y_true, y_prob, n_bootstraps=500, random_state=None):
+    from sklearn.metrics import confusion_matrix
+    if random_state is None:
+        try:
+            from config import RANDOM_SEED
+            random_state = RANDOM_SEED
+        except ImportError:
+            random_state = 500
+    y_pred = (y_prob > 0.5).astype(int)
+    def calculate_youden(y_t, y_p):
+        pred = (y_p > 0.5).astype(int)
+        cm = confusion_matrix(y_t, pred)
+        if cm.shape != (2, 2) or len(np.unique(y_t)) < 2 or len(np.unique(pred)) < 2:
+            return 0.0
+        tn, fp, fn, tp = cm.ravel()
+        sensitivity = tp / (tp + fn + 1e-9)
+        specificity = tn / (tn + fp + 1e-9)
+        return sensitivity + specificity - 1
+    try:
+        auc_val = roc_auc_score(y_true, y_prob)
+    except ValueError:
+        auc_val = 0.5 # 兜底值，避免崩溃
+    metrics = {
+        'AUC': auc_val,
+        'AUPRC': average_precision_score(y_true, y_prob),
+        'Accuracy': accuracy_score(y_true, y_pred),
+        'F1': f1_score(y_true, y_pred),
+        'Precision': precision_score(y_true, y_pred, zero_division=0),
+        'Recall': recall_score(y_true, y_pred, zero_division=0),
+        'Youden': calculate_youden(y_true, y_prob),
+        'Brier': brier_score_loss(y_true, y_prob)
+    }
+    bootstrapped_stats = {k: [] for k in metrics.keys()}
+    rng = np.random.RandomState(random_state)
+    y_true_arr = np.asarray(y_true)
+    y_prob_arr = np.asarray(y_prob)
+    for i in range(n_bootstraps):
+        indices = rng.randint(0, len(y_true_arr), len(y_true_arr))
+        y_true_b = y_true_arr[indices]
+        if len(np.unique(y_true_b)) < 2:
+            continue
+        y_prob_b = y_prob_arr[indices]
+        y_pred_b = (y_prob_b > 0.5).astype(int)
+        bootstrapped_stats['AUC'].append(roc_auc_score(y_true_b, y_prob_b))
+        bootstrapped_stats['AUPRC'].append(average_precision_score(y_true_b, y_prob_b))
+        bootstrapped_stats['Accuracy'].append(accuracy_score(y_true_b, y_pred_b))
+        bootstrapped_stats['F1'].append(f1_score(y_true_b, y_pred_b))
+        bootstrapped_stats['Precision'].append(precision_score(y_true_b, y_pred_b, zero_division=0))
+        bootstrapped_stats['Recall'].append(recall_score(y_true_b, y_pred_b, zero_division=0))
+        bootstrapped_stats['Youden'].append(calculate_youden(y_true_b, y_prob_b))
+        bootstrapped_stats['Brier'].append(brier_score_loss(y_true_b, y_prob_b))
+    final_results = {}
+    for k, v in metrics.items():
+        arr = bootstrapped_stats[k]
+        if len(arr) < 10:
+            low, high = v, v
+        else:
+            low = np.percentile(arr, 2.5)
+            high = np.percentile(arr, 97.5)
+        final_results[k] = f"{v:.4f} ({low:.4f}-{high:.4f})"
+        final_results[f'{k}_raw'] = v
+    return final_results

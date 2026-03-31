@@ -1,0 +1,39 @@
+# export_prediction_model_baseline.py (Original: 49 lines, Cleaned: 38 lines)
+# -*- coding: utf-8 -*-
+import pandas as pd
+import os
+def main():
+    base = os.path.dirname(os.path.abspath(__file__))
+    for sub in ['FINAL_PAPER_TABLES', 'evaluation_results']:
+        table1_path = os.path.join(base, sub, 'table1_baseline_characteristics.csv')
+        if os.path.exists(table1_path):
+            break
+    else:
+        print("未找到 table1_baseline_characteristics.csv")
+        return
+    t1 = pd.read_csv(table1_path, encoding='utf-8-sig')
+    exclude_rows = [
+        'Right grip, kg', 'Psychiatric condition', 'Grip strength, kg',
+        'Cognition score (defining)', 'CES-D-10 (defining)', 'Incident comorbidity, follow-up',
+        '—— Defining variables ——', '—— Outcome ——'  # 无内容的分组标题
+    ]
+    mask = ~t1['Variable'].str.strip().isin(exclude_rows)
+    out = t1[mask].copy()
+    if 'P' in out.columns:
+        def _fmt_p(v):
+            if pd.isna(v) or str(v).strip() == '':
+                return ''
+            try:
+                p = float(v)
+                return '<0.001' if p < 0.001 else f'{p:.4f}'
+            except (ValueError, TypeError):
+                return str(v)
+        out['P'] = out['P'].apply(_fmt_p)
+    out_dir = os.path.join(base, 'FINAL_PAPER_TABLES')
+    os.makedirs(out_dir, exist_ok=True)
+    out_path = os.path.join(out_dir, 'table1_prediction_model_variables_baseline.csv')
+    out.to_csv(out_path, index=False, encoding='utf-8-sig')
+    print(f"已导出预测模型变量 baseline: {out_path}")
+    print(f"共 {len(out)} 行（已排除: Right grip, Psychiatric condition, Grip strength, Cognition score, CES-D-10, Incident comorbidity）")
+if __name__ == '__main__':
+    main()

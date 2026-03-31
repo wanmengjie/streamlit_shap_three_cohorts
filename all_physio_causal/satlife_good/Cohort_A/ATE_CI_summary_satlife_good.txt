@@ -1,0 +1,9 @@
+Treatment: satlife_good
+ATE (point estimate): 0.0070
+95% CI: (-0.0476, 0.0615)
+90% CI: (-0.0388, 0.0527)
+N: 8828
+Overlap trimming (PS not in [0.05,0.95]): 0 excluded (0.0%)
+E-Value (point): 1.64
+E-Value (conservative, from 95%% CI): 0.48
+  (Unmeasured confounder would need RR≥E with both T and Y to explain away the effect)

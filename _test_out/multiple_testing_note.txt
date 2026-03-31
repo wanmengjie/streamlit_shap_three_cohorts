@@ -1,0 +1,5 @@
+Multiple Testing Note (审稿修正):
+- Model comparison: 15 models × 3 cohorts = 45 comparisons (exploratory).
+- Causal inference: 5 exposures × 3 cohorts = 15 ATE estimates.
+- For confirmatory claims, consider FDR (Benjamini-Hochberg) or Bonferroni (α=0.05/15≈0.0033).
+- Current analysis: primary results reported with 95%% CI; sensitivity analyses support robustness.

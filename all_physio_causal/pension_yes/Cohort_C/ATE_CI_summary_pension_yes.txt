@@ -1,0 +1,9 @@
+Treatment: pension_yes
+ATE (point estimate): -0.0180
+95% CI: (-0.1566, 0.1205)
+90% CI: (-0.1343, 0.0982)
+N: 2435
+Overlap trimming (PS not in [0.05,0.95]): 53 excluded (2.2%)
+E-Value (point): 1.43
+E-Value (conservative, from 95%% CI): 9.30
+  (Unmeasured confounder would need RR≥E with both T and Y to explain away the effect)

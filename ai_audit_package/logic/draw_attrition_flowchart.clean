@@ -1,0 +1,69 @@
+# draw_attrition_flowchart.py (Original: 85 lines, Cleaned: 68 lines)
+# -*- coding: utf-8 -*-
+import os
+import pandas as pd
+import logging
+from config import *  # 加载字体配置
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+logger = logging.getLogger(__name__)
+def draw_flowchart(csv_path=None, output_path=None):
+    if csv_path is None:
+        for p in ['LIU_JUE_STRATEGIC_SUMMARY/attrition_flow.csv', 'preprocessed_data/attrition_flow.csv']:
+            if os.path.exists(p):
+                csv_path = p
+                break
+    if csv_path is None or not os.path.exists(csv_path):
+        logger.warning("未找到 attrition_flow.csv，请先运行主分析生成预处理与流失表。")
+        return False
+    df = pd.read_csv(csv_path, encoding='utf-8-sig')
+    if 'Step' not in df.columns or 'N' not in df.columns:
+        logger.error("attrition_flow.csv 需包含列 Step 与 N。")
+        return False
+    steps = df['Step'].tolist()
+    ns = df['N'].tolist()
+    n_boxes = len(steps)
+    if n_boxes == 0:
+        return False
+    if output_path is None:
+        final_dir = 'LIU_JUE_STRATEGIC_SUMMARY'
+        if os.path.exists(final_dir):
+            output_path = os.path.join(final_dir, 'attrition_flow_diagram.png')
+        else:
+            output_path = os.path.join(os.path.dirname(csv_path) or '.', 'attrition_flow_diagram.png')
+    os.makedirs(os.path.dirname(output_path) or '.', exist_ok=True)
+    fig, ax = plt.subplots(figsize=(10, max(6, n_boxes * 1.2)))
+    ax.set_xlim(0, 10)
+    ax.set_ylim(-0.5, n_boxes + 0.5)
+    ax.axis('off')
+    box_w, box_h = 7, 0.65
+    x_center = 5
+    for i, (step, n) in enumerate(zip(steps, ns)):
+        y = n_boxes - 1 - i
+        rect = mpatches.FancyBboxPatch((x_center - box_w/2, y - box_h/2), box_w, box_h,
+                                        boxstyle="round,pad=0.02", facecolor='#E8F4FC', edgecolor='#2E86AB', linewidth=1.2)
+        ax.add_patch(rect)
+        try:
+            n_str = f"{int(float(n)):,}" if pd.notna(n) else "—"
+        except (ValueError, TypeError):
+            n_str = "—"
+        ax.text(x_center, y, f"{step}\nN = {n_str}", ha='center', va='center', fontsize=9, wrap=True)
+        if i < n_boxes - 1:
+            ax.annotate('', xy=(x_center, y - box_h/2 - 0.15), xytext=(x_center, y - box_h/2 - 0.45),
+                        arrowprops=dict(arrowstyle='->', color='#333', lw=1.5))
+            try:
+                excluded = (int(float(ns[i])) - int(float(ns[i+1]))) if i+1 < len(ns) and pd.notna(ns[i]) and pd.notna(ns[i+1]) else None
+            except (ValueError, TypeError):
+                excluded = None
+            if excluded is not None and excluded > 0:
+                ax.text(x_center + box_w/2 + 0.6, y - 0.5, f'Excluded\nn = {excluded:,}', fontsize=7, color='#666', va='center')
+    plt.title('Study flow: inclusion and exclusion (STROBE)', fontsize=12)
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    logger.info(f"流程图已保存: {output_path}")
+    return True
+if __name__ == '__main__':
+    draw_flowchart()

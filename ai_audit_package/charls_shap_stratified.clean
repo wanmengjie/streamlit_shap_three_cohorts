@@ -1,0 +1,184 @@
+# charls_shap_stratified.py (Original: 227 lines, Cleaned: 183 lines)
+# -*- coding: utf-8 -*-
+import os
+import logging
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import shap
+from charls_feature_lists import get_exclude_cols
+from config import BBOX_INCHES
+logger = logging.getLogger(__name__)
+def _get_model_and_X(df, model, target_col, exclude_cols):
+    X_cols = [c for c in df.columns if c not in exclude_cols]
+    X = df[X_cols].select_dtypes(include=[np.number])
+    if X.shape[1] == 0 or len(X) < 5:
+        return None, None, None
+    actual_model = model
+    X_shap = X
+    if hasattr(model, 'estimator') and hasattr(model.estimator, 'named_steps'):
+        pipe = model.estimator
+        actual_model = pipe.named_steps['clf']
+        X_shap_arr = pipe.named_steps['preprocessor'].transform(X)
+        try:
+            f_names = pipe.named_steps['preprocessor'].get_feature_names_out()
+            X_shap = pd.DataFrame(X_shap_arr, columns=f_names)
+        except Exception:
+            X_shap = pd.DataFrame(X_shap_arr)
+    elif hasattr(model, 'named_steps') and 'clf' in model.named_steps:
+        actual_model = model.named_steps['clf']
+        X_shap_arr = model.named_steps['preprocessor'].transform(X)
+        try:
+            f_names = model.named_steps['preprocessor'].get_feature_names_out()
+            X_shap = pd.DataFrame(X_shap_arr, columns=f_names)
+        except Exception:
+            X_shap = pd.DataFrame(X_shap_arr)
+    return actual_model, X_shap, X
+def _get_stratification_groups(df):
+    groups = []
+    if 'age' in df.columns:
+        df = df.copy()
+        df['_age_group'] = pd.cut(df['age'], bins=[0, 65, 75, 120], labels=['<65', '65-75', '75+'])
+        for v in df['_age_group'].dropna().unique():
+            groups.append(('Age', str(v), (df['_age_group'] == v)))
+    if 'gender' in df.columns:
+        for v in [0, 1]:
+            mask = (df['gender'] == v)
+            if mask.sum() >= 30:
+                groups.append(('Gender', 'Female' if v == 0 else 'Male', mask))
+    if 'rural' in df.columns:
+        for v in [0, 1]:
+            mask = (df['rural'] == v)
+            if mask.sum() >= 30:
+                groups.append(('Residence', 'Urban' if v == 0 else 'Rural', mask))
+    return groups
+def run_stratified_shap(df, model, output_dir='shap_stratified', target_col='is_comorbidity_next'):
+    logger.info(f">>> 启动分层 SHAP 分析 (Target: {target_col})...")
+    os.makedirs(output_dir, exist_ok=True)
+    exclude_cols = get_exclude_cols(df, target_col)
+    actual_model, X_shap, X_raw = _get_model_and_X(df, model, target_col, exclude_cols)
+    if actual_model is None:
+        logger.warning("分层 SHAP：无可用特征，跳过")
+        return False
+    model_str = str(type(actual_model))
+    use_tree = any(m in model_str for m in ['RandomForest', 'XGB', 'LGBM', 'CatBoost', 'ExtraTrees'])
+    groups = _get_stratification_groups(df)
+    if not groups:
+        logger.warning("无有效分层变量")
+        return False
+    rank_results = []
+    n_plots = min(len(groups), 6)
+    fig, axes = plt.subplots(2, 3, figsize=(14, 10))
+    axes = axes.flatten()
+    for idx, (strat_name, strat_val, mask) in enumerate(groups):
+        if idx >= 6:
+            break
+        df_sub = df[mask]
+        m = mask.values if hasattr(mask, 'values') else np.array(mask)
+        idx = np.where(m)[0]
+        X_sub = X_shap.iloc[idx] if hasattr(X_shap, 'iloc') else X_shap[idx]
+        if len(X_sub) < 30:
+            continue
+        try:
+            if use_tree:
+                explainer = shap.TreeExplainer(actual_model)
+                sv = explainer.shap_values(X_sub)
+            else:
+                X_sample = shap.sample(X_shap, 50)
+                explainer = shap.KernelExplainer(actual_model.predict_proba, X_sample)
+                sv = explainer.shap_values(X_sub.head(100), nsamples=50)
+            if isinstance(sv, list):
+                sv = sv[1] if len(sv) > 1 else sv[0]
+            if len(sv.shape) == 3:
+                sv = sv[:, :, 1]
+            clean_feat_names = [c.replace('pass__', '').replace('num__', '') for c in X_sub.columns]
+            X_sub.columns = clean_feat_names
+            mean_abs = np.abs(sv).mean(axis=0)
+            feat_names = X_sub.columns.tolist() if hasattr(X_sub, 'columns') else list(range(sv.shape[1]))
+            rank_df = pd.DataFrame({'feature': feat_names, 'mean_abs_shap': mean_abs})
+            rank_df = rank_df.sort_values('mean_abs_shap', ascending=False).reset_index(drop=True)
+            rank_df['rank'] = rank_df.index + 1
+            rank_df['stratum'] = f"{strat_name}_{strat_val}"
+            rank_results.append(rank_df)
+            top_n = min(12, len(rank_df))
+            ax = axes[idx]
+            y_pos = np.arange(top_n)[::-1]
+            ax.barh(y_pos, rank_df['mean_abs_shap'].head(top_n).values, color='steelblue', alpha=0.8)
+            ax.set_yticks(y_pos)
+            ax.set_yticklabels(rank_df['feature'].head(top_n).tolist(), fontsize=8)
+            ax.set_xlabel('Mean |SHAP|')
+            ax.set_title(f'{strat_name}={strat_val} (n={len(X_sub)})')
+        except Exception as e:
+            logger.warning(f"分层 {strat_name}={strat_val} SHAP 失败: {e}")
+    for j in range(len(groups), 6):
+        axes[j].axis('off')
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, 'fig_shap_stratified.png'), dpi=200, bbox_inches=BBOX_INCHES)
+    plt.close()
+    if rank_results:
+        combined = pd.concat(rank_results, ignore_index=True)
+        combined.to_csv(os.path.join(output_dir, 'shap_stratified_ranking.csv'), index=False, encoding='utf-8-sig')
+    try:
+        if len(groups) > 0 and use_tree:
+            strat_name, strat_val, mask = groups[0]
+            m = mask.values if hasattr(mask, 'values') else np.array(mask)
+            idx = np.where(m)[0]
+            X_sub = X_shap.iloc[idx] if hasattr(X_shap, 'iloc') else X_shap[idx]
+            if len(X_sub) >= 30:
+                explainer = shap.TreeExplainer(actual_model)
+                sv = explainer.shap_values(X_sub)
+                if isinstance(sv, list):
+                    sv = sv[1] if len(sv) > 1 else sv[0]
+                if len(sv.shape) == 3:
+                    sv = sv[:, :, 1]
+                top_feat = X_sub.columns[np.abs(sv).mean(axis=0).argmax()]
+                plt.figure(figsize=(8, 5))
+                shap.dependence_plot(top_feat, sv, X_sub, show=False)
+                plt.title(f'SHAP Dependence: {top_feat} ({strat_name}={strat_val})')
+                plt.tight_layout()
+                plt.savefig(os.path.join(output_dir, 'fig_shap_dependence_stratified.png'), dpi=200, bbox_inches=BBOX_INCHES)
+                plt.close()
+    except Exception as e:
+        logger.debug(f"分层依赖图跳过: {e}")
+    return True
+def run_shap_interaction(df, model, output_dir='shap_results', target_col='is_comorbidity_next'):
+    logger.info(f">>> 启动 SHAP 交互分析 (Target: {target_col})...")
+    os.makedirs(output_dir, exist_ok=True)
+    exclude_cols = get_exclude_cols(df, target_col)
+    actual_model, X_shap, _ = _get_model_and_X(df, model, target_col, exclude_cols)
+    if actual_model is None:
+        return False
+    model_str = str(type(actual_model))
+    if not any(m in model_str for m in ['RandomForest', 'XGB', 'LGBM', 'CatBoost', 'ExtraTrees']):
+        logger.warning("SHAP 交互仅支持树模型，跳过")
+        return False
+    try:
+        X_sample = X_shap.head(500) if len(X_shap) > 500 else X_shap
+        explainer = shap.TreeExplainer(actual_model)
+        shap_inter = explainer.shap_interaction_values(X_sample)
+        if isinstance(shap_inter, list):
+            shap_inter = shap_inter[1] if len(shap_inter) > 1 else shap_inter[0]
+        clean_feat_names = [c.replace('pass__', '').replace('num__', '') for c in X_sample.columns]
+        X_sample.columns = clean_feat_names
+        n_feat = shap_inter.shape[1]
+        interaction_matrix = np.abs(shap_inter).sum(axis=0)
+        np.fill_diagonal(interaction_matrix, 0)
+        feat_names = X_sample.columns.tolist() if hasattr(X_sample, 'columns') else [str(i) for i in range(n_feat)]
+        top_interactions = []
+        for i in range(n_feat):
+            for j in range(i + 1, n_feat):
+                top_interactions.append({
+                    'feature_i': feat_names[i], 'feature_j': feat_names[j],
+                    'interaction_strength': interaction_matrix[i, j] + interaction_matrix[j, i]
+                })
+        top_df = pd.DataFrame(top_interactions).sort_values('interaction_strength', ascending=False).head(15)
+        top_df.to_csv(os.path.join(output_dir, 'shap_interaction_top.csv'), index=False, encoding='utf-8-sig')
+        plt.figure(figsize=(10, 8))
+        shap.summary_plot(shap_inter, X_sample, show=False, max_display=10)
+        plt.tight_layout()
+        plt.savefig(os.path.join(output_dir, 'fig_shap_interaction.png'), dpi=200, bbox_inches=BBOX_INCHES)
+        plt.close()
+        logger.info(f"SHAP 交互分析已保存至 {output_dir}")
+    except Exception as e:
+        logger.warning(f"SHAP 交互失败: {e}")
+    return True

@@ -1,0 +1,164 @@
+# generate_ai_audit_package.py (Original: 289 lines, Cleaned: 163 lines)
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+import os
+import re
+import ast
+from pathlib import Path
+from datetime import datetime
+class CodeAuditor:
+    def __init__(self, source_dir=".", output_dir="ai_audit_package"):
+        self.source = Path(source_dir)
+        self.output = Path(output_dir)
+        self.output.mkdir(exist_ok=True)
+        self.file_stats = []
+    def clean_code(self, filepath):
+        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+            content = f.read()
+        original_lines = len(content.split('\n'))
+        content = re.sub(r'', '', content)
+        content = re.sub(r"", '', content)
+        lines = content.split('\n')
+        cleaned_lines = []
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith('#!') or stripped.startswith('# -*-'):
+                cleaned_lines.append(line)
+                continue
+            if stripped.startswith('#'):
+                continue
+            if line.strip():
+                cleaned_lines.append(line)
+        cleaned_content = '\n'.join(cleaned_lines)
+        final_lines = len(cleaned_lines)
+        return cleaned_content, original_lines, final_lines
+    def extract_critical_configs(self):
+        configs = []
+        config_patterns = [
+            r'(RANDOM_SEED|random_state)\s*=\s*(\d+)',
+            r'(n_estimators|max_depth|n_neighbors)\s*=\s*(\d+)',
+            r'(honest|train_only|ANALYSIS_LOCK)\s*=\s*(True|False)',
+            r'(USE_IMPUTED_DATA|IMPUTED_DATA_PATH)\s*=\s*([^\n]+)',
+            r'(AGE_MIN|CESD_CUTOFF|COGNITION_CUTOFF)\s*=\s*(\d+)'
+        ]
+        for py_file in self.source.rglob("*.py"):
+            if '__pycache__' in str(py_file):
+                continue
+            try:
+                with open(py_file, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                for pattern in config_patterns:
+                    matches = re.finditer(pattern, content)
+                    for match in matches:
+                        configs.append({
+                            'file': py_file.name,
+                            'param': match.group(1),
+                            'value': match.group(2).strip()
+                        })
+            except Exception:
+                continue
+        return configs
+    def generate_logic_flow(self):
+        flow = []
+        main_files = [
+            'run_all_charls_analyses.py',
+            'charls_recalculate_causal_impact.py',
+            'charls_sensitivity_analysis.py'
+        ]
+        for fname in main_files:
+            fpath = self.source / fname
+            if fpath.exists():
+                try:
+                    with open(fpath, 'r', encoding='utf-8') as f:
+                        tree = ast.parse(f.read())
+                    functions = [node.name for node in ast.walk(tree)
+                                if isinstance(node, ast.FunctionDef)
+                                and not node.name.startswith('_')]
+                    imports = []
+                    for node in ast.walk(tree):
+                        if isinstance(node, ast.Import):
+                            imports.extend(n.name for n in node.names)
+                        elif isinstance(node, ast.ImportFrom) and node.module:
+                            imports.append(node.module)
+                    flow.append({
+                        'file': fname,
+                        'functions': functions[:10],
+                        'imports': list(dict.fromkeys(imports))[:8]
+                    })
+                except Exception:
+                    flow.append({'file': fname, 'functions': [], 'imports': []})
+        return flow
+    def _validate_clean_files(self):
+        critical = [
+            'run_all_charls_analyses.clean',
+            'config.clean',
+            'charls_recalculate_causal_impact.clean',
+            'charls_sensitivity_analysis.clean',
+        ]
+        failed = []
+        for fname in list(self.output.glob("*.clean")):
+            try:
+                with open(fname, 'r', encoding='utf-8') as f:
+                    ast.parse(f.read())
+            except SyntaxError as e:
+                failed.append((fname.name, str(e)))
+        if failed:
+            print("⚠️ AST 解析失败（清理可能破坏了语法）:")
+            for name, err in failed:
+                print(f"   - {name}: {err}")
+            if any(f[0] in critical for f in failed):
+                raise RuntimeError("关键 .clean 文件无法解析，请检查 clean_code 逻辑")
+        else:
+            print("✓ 所有 .clean 文件通过 AST 解析验证")
+    def create_package(self):
+        print("🔍 扫描Python文件...")
+        core_files = []
+        for py_file in self.source.rglob("*.py"):
+            if '__pycache__' in str(py_file) or 'test' in str(py_file).lower():
+                continue
+            cleaned, orig, final = self.clean_code(py_file)
+            if final > 10:
+                output_file = self.output / f"{py_file.stem}.clean"
+                with open(output_file, 'w', encoding='utf-8') as f:
+                    f.write(f"# {py_file.name} (Original: {orig} lines, Cleaned: {final} lines)\n")
+                    f.write(cleaned)
+                self.file_stats.append({
+                    'original': py_file.name,
+                    'cleaned': output_file.name,
+                    'lines_original': orig,
+                    'lines_cleaned': final,
+                    'reduction': f"{(1-final/orig)*100:.1f}%"
+                })
+                core_files.append(py_file.name)
+        self._validate_clean_files()
+        configs = self.extract_critical_configs()
+        with open(self.output / "CRITICAL_CONFIGS.txt", 'w', encoding='utf-8') as f:
+            f.write("# 关键配置参数提取\n\n")
+            for cfg in configs:
+                f.write(f"{cfg['file']:30s} | {cfg['param']:20s} | {cfg['value']}\n")
+        flow = self.generate_logic_flow()
+        with open(self.output / "LOGIC_FLOW.txt", 'w', encoding='utf-8') as f:
+            f.write("# 核心逻辑流程\n\n")
+            for item in flow:
+                f.write(f"## {item['file']}\n")
+                f.write(f"Functions: {', '.join(item['functions'])}\n")
+                f.write(f"Key Imports: {', '.join(item['imports'])}\n\n")
+        with open(self.output / "INDEX.txt", 'w', encoding='utf-8') as f:
+            f.write(f"# CHARLS Causal ML Code Audit Package\n")
+            f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n")
+            f.write(f"Total Files: {len(self.file_stats)}\n\n")
+            f.write("## File Manifest\n")
+            for stat in self.file_stats:
+                f.write(f"{stat['cleaned']:40s} | Original: {stat['lines_original']:4d} | "
+                       f"Cleaned: {stat['lines_cleaned']:4d} | Reduction: {stat['reduction']}\n")
+        self._generate_ai_prompt()
+        print(f"✅ 审计包已生成: {self.output.absolute()}")
+        print(f"📊 共处理 {len(self.file_stats)} 个文件")
+        print(f"📄 请查看 {self.output}/AI_REVIEW_PROMPT.txt 获取审查指令")
+    def _generate_ai_prompt(self):
+        prompt = 
+        with open(self.output / "AI_REVIEW_PROMPT.txt", 'w', encoding='utf-8') as f:
+            f.write(prompt)
+if __name__ == "__main__":
+    auditor = CodeAuditor()
+    auditor.create_package()

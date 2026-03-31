@@ -1,0 +1,16 @@
+# run_forest_plot_only.py (Original: 23 lines, Cleaned: 15 lines)
+# -*- coding: utf-8 -*-
+import os
+import sys
+if __name__ == '__main__':
+    from charls_complete_preprocessing import preprocess_charls_data
+    from run_all_interventions_analysis import run_all_interventions
+    df = preprocess_charls_data('CHARLS.csv', age_min=60, write_output=False)
+    if df is None:
+        print("❌ 预处理失败，请检查 CHARLS.csv")
+        sys.exit(1)
+    output_root = 'LIU_JUE_STRATEGIC_SUMMARY'
+    os.makedirs(output_root, exist_ok=True)
+    run_all_interventions(df, output_root=output_root)
+    out_path = os.path.join(output_root, 'fig_all_interventions_forest.png')
+    print(f"✅ 森林图已生成: {os.path.abspath(out_path)}")

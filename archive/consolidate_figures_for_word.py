@@ -1,0 +1,39 @@
+import os
+import shutil
+
+# Setup paths
+BASE_DIR = os.getcwd()
+SRC_MAIN = os.path.join(BASE_DIR, "FINAL_PAPER_FIGURES")
+SRC_SUPP = os.path.join(BASE_DIR, "FINAL_PAPER_FIGURES", "Supplementary")
+DEST_DIR = os.path.join(BASE_DIR, "WORD_INSERTION_ASSETS")
+
+def consolidate_figures():
+    # Create destination (clean start)
+    if os.path.exists(DEST_DIR):
+        shutil.rmtree(DEST_DIR)
+    os.makedirs(DEST_DIR)
+
+    print(f">>> 正在将所有图表整合到: {DEST_DIR}")
+
+    count = 0
+    # Copy Main Figures
+    if os.path.exists(SRC_MAIN):
+        for f in os.listdir(SRC_MAIN):
+            if f.lower().endswith('.png') and os.path.isfile(os.path.join(SRC_MAIN, f)):
+                shutil.copy2(os.path.join(SRC_MAIN, f), os.path.join(DEST_DIR, f))
+                print(f"  [Main] Copied: {f}")
+                count += 1
+
+    # Copy Supplementary Figures
+    if os.path.exists(SRC_SUPP):
+        for f in os.listdir(SRC_SUPP):
+            if f.lower().endswith('.png') and os.path.isfile(os.path.join(SRC_SUPP, f)):
+                shutil.copy2(os.path.join(SRC_SUPP, f), os.path.join(DEST_DIR, f))
+                print(f"  [Supp] Copied: {f}")
+                count += 1
+    
+    print(f"\n>>> 成功整合了 {count} 张图片。")
+    print(f">>> 文件夹绝对路径: {DEST_DIR}")
+
+if __name__ == "__main__":
+    consolidate_figures()

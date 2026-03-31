@@ -1108,8 +1108,8 @@ def _bps_sex_column(col: str) -> bool:
 
 
 def _integer_continuous_columns() -> frozenset[str]:
-    """CHARLS / UI: these continuous inputs must be whole numbers (years, household count)."""
-    return frozenset({"age", "family_size"})
+    """CHARLS / UI: whole-number inputs (age; ORDINAL_COUNT_IMPUTE_ONLY: family_size, adlab_c, iadl)."""
+    return frozenset({"age", "family_size", "adlab_c", "iadl"})
 
 
 def _is_integer_continuous_col(col: str) -> bool:

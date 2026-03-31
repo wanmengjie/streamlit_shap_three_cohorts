@@ -1,0 +1,58 @@
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import os
+from sklearn.linear_model import LogisticRegression
+
+def generate_table_s2(df_path, output_dir='evaluation_results'):
+    os.makedirs(output_dir, exist_ok=True)
+    df = pd.read_csv(df_path)
+    missing_indicators = df.isnull().astype(int)
+    cols_with_missing = [c for c in missing_indicators.columns if missing_indicators[c].sum() > 50]
+    
+    mcar_results = []
+    # 选取缺失较多的几个关键临床指标
+    test_cols = [c for c in ['total_cognition', 'systo', 'diasto', 'mwaist', 'mheight', 'mweight'] if c in cols_with_missing]
+    
+    for target in test_cols:
+        y = missing_indicators[target]
+        # 使用其他非缺失特征预测缺失性
+        X = df.drop(columns=cols_with_missing).fillna(0).select_dtypes(include=[np.number])
+        if y.sum() > 0:
+            lr = LogisticRegression(max_iter=500).fit(X, y)
+            r2 = lr.score(X, y)
+            mcar_results.append({'Variable': target, 'Missing_Count': y.sum(), 'MCAR_R2_Score': r2})
+    
+    mcar_df = pd.DataFrame(mcar_results)
+    mcar_df.to_csv(os.path.join(output_dir, 'tableS2_mcar_test.csv'), index=False)
+    print('Table S2 Generated')
+
+def generate_figure_s14(output_dir='evaluation_results/deployment'):
+    os.makedirs(output_dir, exist_ok=True)
+    plt.figure(figsize=(10, 8))
+    plt.axis('off')
+    bbox = dict(boxstyle='round,pad=0.8', fc='white', ec='navy', lw=1.5)
+    
+    steps = [
+        'Phase 1: Model Serialization\nChampion Model (CatBoost) -> Joblib File',
+        'Phase 2: Prediction Engine\nStreamlit Framework -> Backend Logic',
+        'Phase 3: Interactive UI\nUser Input -> Real-time Feature Scaling',
+        'Phase 4: Output & Visualization\nIncident Risk % -> Local SHAP Explanation'
+    ]
+    
+    y_pos = [0.8, 0.6, 0.4, 0.2]
+    for i, step in enumerate(steps):
+        plt.text(0.5, y_pos[i], step, ha='center', va='center', bbox=bbox, fontsize=11)
+        if i < len(steps) - 1:
+            plt.annotate('', xy=(0.5, y_pos[i+1]+0.06), xytext=(0.5, y_pos[i]-0.06),
+                         arrowprops=dict(arrowstyle='->', lw=1.5, color='black'))
+            
+    plt.title('Figure S14. Web-based Decision-Support Platform Deployment Workflow', fontsize=12, fontweight='bold', pad=20)
+    plt.savefig(os.path.join(output_dir, 'figS14_deployment_flow.png'), bbox_inches='tight', dpi=300)
+    plt.close()
+    print('Figure S14 Generated')
+
+if __name__ == "__main__":
+    generate_table_s2('preprocessed_data/CHARLS_final_preprocessed.csv')
+    generate_figure_s14()

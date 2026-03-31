@@ -1,0 +1,9 @@
+Treatment: pulse_above_median
+ATE (point estimate): 0.0024
+95% CI: (-0.0596, 0.0644)
+90% CI: (-0.0496, 0.0544)
+N: 8828
+Overlap trimming (PS not in [0.05,0.95]): 2 excluded (0.0%)
+E-Value (point): 1.34
+E-Value (conservative, from 95%% CI): 0.43
+  (Unmeasured confounder would need RR≥E with both T and Y to explain away the effect)

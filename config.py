@@ -68,6 +68,7 @@ RUN_COHORTS_ONLY = None  # 例: ['B', 'C']
 MAIN_SKIP_STEPS_BEFORE_COHORTS = False
 # True：三队列内仅跑因果模块及因果相关扩展（ITE/列线图/时序/插补敏感性/亚组），跳过 compare_models（CPM）、SHAP、
 # 临床评价、决策支持、外部验证、剂量反应。数据仍按主流程加载（插补表用于因果）；不写新的 Table2/冠军模型。
+# 需重训 CPM（刷新 champion_model.joblib）时临时改为 False，跑完再改回 True。
 MAIN_COHORT_CAUSAL_ONLY = True
 # True：「因果轻量重跑」— 用磁盘上**已有**插补表与 CPM 结果，不重跑因果前置与队列后大块分析。
 # 效果：跳过本轮 npj 前置插补、跳过概念图/Table1/流失/插补敏感性、跳过 Table1b 发病密度与组合发病图、

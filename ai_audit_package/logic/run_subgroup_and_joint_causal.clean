@@ -1,0 +1,106 @@
+# run_subgroup_and_joint_causal.py (Original: 143 lines, Cleaned: 105 lines)
+# -*- coding: utf-8 -*-
+import os
+import logging
+import pandas as pd
+import numpy as np
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler()]
+)
+logger = logging.getLogger(__name__)
+from charls_complete_preprocessing import preprocess_charls_data
+from charls_recalculate_causal_impact import estimate_causal_impact
+MIN_SUBGROUP_N = 100  # 亚组最小样本量
+def prepare_data(df):
+    if 'sleep' in df.columns:
+        sleep_val = df['sleep'].clip(0, 24)
+        df['sleep_adequate'] = (sleep_val >= 6).astype(int)
+        df.loc[sleep_val.isna(), 'sleep_adequate'] = np.nan
+    if 'exercise' in df.columns and 'sleep_adequate' in df.columns:
+        ex = df['exercise'].fillna(0).astype(int)
+        sl = df['sleep_adequate'].fillna(0).astype(int)
+        df['exercise_sleep_both'] = ((ex == 1) & (sl == 1)).astype(int)
+    return df
+def run_subgroup_causal(df_sub, treatment_col, axis_name, output_root):
+    results = []
+    df_sub = df_sub.copy()
+    if 'age' in df_sub.columns:
+        df_sub['age_group'] = pd.cut(df_sub['age'], bins=[0, 65, 75, 120], labels=['lt65', '65_75', '75plus'])
+        ag_map = {'lt65': '<65', '65_75': '65-75', '75plus': '75+'}
+        for ag, ag_label in [('lt65', '<65'), ('65_75', '65-75'), ('75plus', '75+')]:
+            mask = (df_sub['age_group'] == ag)
+            if mask.sum() >= MIN_SUBGROUP_N:
+                sub = df_sub[mask].copy()
+                out_dir = os.path.join(output_root, 'subgroup', axis_name, f'age_{ag}')
+                os.makedirs(out_dir, exist_ok=True)
+                _, (ate, lb, ub) = estimate_causal_impact(sub, treatment_col=treatment_col, output_dir=out_dir)
+                sig = 1 if (lb > 0 or ub < 0) else 0
+                results.append({'subgroup': 'age', 'value': ag_map.get(ag, ag), 'axis': axis_name, 'ate': ate, 'ate_lb': lb, 'ate_ub': ub, 'significant': sig, 'n': len(sub)})
+    if 'rural' in df_sub.columns:
+        for val, label in [(0, 'urban'), (1, 'rural')]:
+            mask = (df_sub['rural'] == val)
+            if mask.sum() >= MIN_SUBGROUP_N:
+                sub = df_sub[mask].copy()
+                out_dir = os.path.join(output_root, 'subgroup', axis_name, f'residence_{label}')
+                os.makedirs(out_dir, exist_ok=True)
+                _, (ate, lb, ub) = estimate_causal_impact(sub, treatment_col=treatment_col, output_dir=out_dir)
+                sig = 1 if (lb > 0 or ub < 0) else 0
+                results.append({'subgroup': 'residence', 'value': label, 'axis': axis_name, 'ate': ate, 'ate_lb': lb, 'ate_ub': ub, 'significant': sig, 'n': len(sub)})
+    if 'gender' in df_sub.columns:
+        for val, label in [(0, 'female'), (1, 'male')]:
+            mask = (df_sub['gender'] == val)
+            if mask.sum() >= MIN_SUBGROUP_N:
+                sub = df_sub[mask].copy()
+                out_dir = os.path.join(output_root, 'subgroup', axis_name, f'sex_{label}')
+                os.makedirs(out_dir, exist_ok=True)
+                _, (ate, lb, ub) = estimate_causal_impact(sub, treatment_col=treatment_col, output_dir=out_dir)
+                sig = 1 if (lb > 0 or ub < 0) else 0
+                results.append({'subgroup': 'sex', 'value': label, 'axis': axis_name, 'ate': ate, 'ate_lb': lb, 'ate_ub': ub, 'significant': sig, 'n': len(sub)})
+    return results
+def run_joint_intervention(df_sub, axis_name, output_root):
+    out_dir = os.path.join(output_root, 'joint', axis_name, 'exercise_sleep_both')
+    os.makedirs(out_dir, exist_ok=True)
+    _, (ate, lb, ub) = estimate_causal_impact(df_sub, treatment_col='exercise_sleep_both', output_dir=out_dir)
+    sig = 1 if (lb > 0 or ub < 0) else 0
+    return {'exposure': 'exercise_sleep_both', 'axis': axis_name, 'ate': ate, 'ate_lb': lb, 'ate_ub': ub, 'significant': sig, 'n': len(df_sub)}
+def main():
+    df = preprocess_charls_data('CHARLS.csv', age_min=60)
+    if df is None:
+        logger.error("预处理失败")
+        return
+    df = prepare_data(df)
+    df_b = df[df['baseline_group'] == 1].copy()
+    df_c = df[df['baseline_group'] == 2].copy()
+    out_root = 'subgroup_and_joint_causal'
+    os.makedirs(out_root, exist_ok=True)
+    logger.info("\n" + "="*60 + "\n>>> 1. 亚组因果分析（exercise）\n" + "="*60)
+    subgroup_results = []
+    for axis_name, df_sub in [('Axis_B', df_b), ('Axis_C', df_c)]:
+        if len(df_sub) < MIN_SUBGROUP_N:
+            continue
+        res = run_subgroup_causal(df_sub, 'exercise', axis_name, out_root)
+        subgroup_results.extend(res)
+    sub_df = pd.DataFrame(subgroup_results)
+    if len(sub_df) > 0:
+        sub_df.to_csv(os.path.join(out_root, 'subgroup_ate_exercise.csv'), index=False, encoding='utf-8-sig')
+        logger.info(f"亚组 ATE 已保存: {out_root}/subgroup_ate_exercise.csv")
+        sig_sub = sub_df[sub_df['significant'] == 1]
+        if len(sig_sub) > 0:
+            logger.info(f"显著亚组: {list(sig_sub[['subgroup','value','axis']].to_dict('records'))}")
+    logger.info("\n" + "="*60 + "\n>>> 2. 联合干预（运动+充足睡眠）\n" + "="*60)
+    joint_results = []
+    for axis_name, df_sub in [('Axis_B', df_b), ('Axis_C', df_c)]:
+        if len(df_sub) < 50:
+            continue
+        r = run_joint_intervention(df_sub, axis_name, out_root)
+        joint_results.append(r)
+        logger.info(f"  {axis_name} exercise_sleep_both: ATE={r['ate']:.4f} (95% CI: {r['ate_lb']:.4f}, {r['ate_ub']:.4f}) {'*显著*' if r['significant'] else ''}")
+    joint_df = pd.DataFrame(joint_results)
+    joint_df.to_csv(os.path.join(out_root, 'joint_exercise_sleep_ate.csv'), index=False, encoding='utf-8-sig')
+    logger.info(f"\n联合干预 ATE 已保存: {out_root}/joint_exercise_sleep_ate.csv")
+    logger.info("\n" + "="*60 + "\n完成")
+    return sub_df, joint_df
+if __name__ == '__main__':
+    main()

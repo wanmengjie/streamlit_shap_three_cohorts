@@ -1,0 +1,53 @@
+import os
+import shutil
+
+# Setup paths
+BASE_DIR = os.getcwd()
+DEST_DIR = os.path.join(BASE_DIR, "WORD_INSERTION_ASSETS")
+
+# Define specific file mappings for the requested split figures
+# Format: (Source Path relative to BASE_DIR, Destination Filename)
+FIGURE_MAPPINGS = [
+    # Figure 5: SHAP Summary (A, B, C)
+    (r"Cohort_A_Healthy_Prospective/02_shap/fig5a_shap_summary_is_comorbidity_next.png", "Figure_5A_SHAP_Cohort_A.png"),
+    (r"Cohort_B_Depression_to_Comorbidity/02_shap/fig5a_shap_summary_is_comorbidity_next.png", "Figure_5B_SHAP_Cohort_B.png"),
+    (r"Cohort_C_Cognition_to_Comorbidity/02_shap/fig5a_shap_summary_is_comorbidity_next.png", "Figure_5C_SHAP_Cohort_C.png"),
+    
+    # Figure 6: Clinical Evaluation (A, B, C)
+    (r"Cohort_A_Healthy_Prospective/04_eval/fig3_clinical_evaluation_comprehensive.png", "Figure_6A_DCA_Calibration_PR_Cohort_A.png"),
+    (r"Cohort_B_Depression_to_Comorbidity/04_eval/fig3_clinical_evaluation_comprehensive.png", "Figure_6B_DCA_Calibration_PR_Cohort_B.png"),
+    (r"Cohort_C_Cognition_to_Comorbidity/04_eval/fig3_clinical_evaluation_comprehensive.png", "Figure_6C_DCA_Calibration_PR_Cohort_C.png"),
+]
+
+def update_split_figures():
+    if not os.path.exists(DEST_DIR):
+        os.makedirs(DEST_DIR)
+        print(f"Created directory: {DEST_DIR}")
+
+    print(f">>> 正在更新 Figure 5 和 Figure 6 的分队列图表...")
+
+    # Remove old combined figures if they exist to avoid confusion
+    old_files = ["Figure_5_SHAP_Summary.png", "Figure_6_DCA_Calibration_PR.png"]
+    for old in old_files:
+        old_path = os.path.join(DEST_DIR, old)
+        if os.path.exists(old_path):
+            os.remove(old_path)
+            print(f"  [Clean] Removed old combined file: {old}")
+
+    count = 0
+    for src_rel, dest_name in FIGURE_MAPPINGS:
+        src_path = os.path.join(BASE_DIR, src_rel)
+        dest_path = os.path.join(DEST_DIR, dest_name)
+        
+        if os.path.exists(src_path):
+            shutil.copy2(src_path, dest_path)
+            print(f"  [Success] Copied: {dest_name}")
+            count += 1
+        else:
+            print(f"  [Error] Source not found: {src_rel}")
+
+    print(f"\n>>> 更新完成。共添加 {count} 张分队列图表。")
+    print(f">>> 文件夹绝对路径: {DEST_DIR}")
+
+if __name__ == "__main__":
+    update_split_figures()

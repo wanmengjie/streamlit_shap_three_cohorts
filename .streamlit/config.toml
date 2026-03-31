@@ -1,0 +1,14 @@
+# Fewer surprise reloads → fewer “Connection error” while SHAP is computing
+[server]
+runOnSave = false
+# Some Windows / VPN setups drop compressed WS; disable if you see frequent Connection error
+enableWebsocketCompression = false
+# Large repos + Windows: file watcher can churn CPU or glitch; "none" = stable local demos
+fileWatcherType = "none"
+# Long cohort switches / SHAP explainer build: more frequent WS ping reduces “CONNECTING” drops (use ≥30 with Tornado ≥6.5)
+websocketPingInterval = 30
+# Optional: always use the same port (then bookmark http://127.0.0.1:8501)
+# port = 8501
+
+[browser]
+gatherUsageStats = false

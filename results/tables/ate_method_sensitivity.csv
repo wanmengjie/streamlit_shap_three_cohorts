@@ -1,0 +1,3 @@
+﻿cohort,method,outcome,treatment,n_after_trim,ate,ate_lb,ate_ub,p_two_sided_approx,ate_ci_source
+B,XLearner,is_comorbidity_next,exercise,3123,-0.021085192794282344,-0.04347083885079689,0.002878064777427652,0.07453763617135434,cluster_bootstrap_percentile
+B,CausalForestDML,is_comorbidity_next,exercise,3123,-0.03169640897047647,-0.13003139622026355,0.06663857827931059,0.5275380655264439,econml_ate_interval

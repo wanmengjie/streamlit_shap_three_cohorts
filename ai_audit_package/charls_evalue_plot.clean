@@ -1,0 +1,30 @@
+# charls_evalue_plot.py (Original: 46 lines, Cleaned: 29 lines)
+import matplotlib.pyplot as plt
+import numpy as np
+import os
+def draw_evalue_curve(rr=1.8, output_dir='evaluation_results'):
+    os.makedirs(output_dir, exist_ok=True)
+    e_value = rr + np.sqrt(rr * (rr - 1))
+    x = np.linspace(1.01, 5, 100)
+    y = x + np.sqrt(x * (x - 1))
+    plt.figure(figsize=(10, 7))
+    plt.plot(x, y, 'b-', linewidth=2, label='E-Value Boundary')
+    plt.fill_between(x, 1, y, color='blue', alpha=0.1)
+    plt.plot(rr, e_value, 'ro', markersize=10)
+    plt.annotate(f'Our Study\n(RR={rr:.2f}, E-Value={e_value:.2f})', 
+                 xy=(rr, e_value), xytext=(rr+0.5, e_value+0.5),
+                 arrowprops=dict(facecolor='black', shrink=0.05),
+                 fontsize=12, fontweight='bold')
+    plt.axhline(y=e_value, color='gray', linestyle='--', alpha=0.5)
+    plt.axvline(x=rr, color='gray', linestyle='--', alpha=0.5)
+    plt.xlabel('Strength of Unmeasured Confounder with Exposure (RR_au)', fontsize=12)
+    plt.ylabel('Strength of Unmeasured Confounder with Outcome (RR_ud)', fontsize=12)
+    plt.title('E-Value Sensitivity Analysis: Robustness against Unmeasured Confounding', fontsize=14)
+    plt.grid(alpha=0.2)
+    plt.legend()
+    save_path = os.path.join(output_dir, 'figS7_evalue_sensitivity.png')
+    plt.savefig(save_path, dpi=300)
+    plt.close()
+    print(f"E-Value 曲线已保存至: {save_path}")
+if __name__ == "__main__":
+    draw_evalue_curve(rr=1.82)

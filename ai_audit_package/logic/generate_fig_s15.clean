@@ -1,0 +1,46 @@
+# generate_fig_s15.py (Original: 69 lines, Cleaned: 45 lines)
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+import os
+def generate_figure_s15_mockup(output_dir='evaluation_results/deployment'):
+    os.makedirs(output_dir, exist_ok=True)
+    fig, ax = plt.subplots(figsize=(14, 10))
+    ax.set_axis_off()
+    rect_frame = patches.Rectangle((0.05, 0.05), 0.9, 0.9, linewidth=2, edgecolor='#333333', facecolor='#F0F2F6', zorder=1)
+    ax.add_patch(rect_frame)
+    rect_header = patches.Rectangle((0.05, 0.88), 0.9, 0.07, facecolor='#FFFFFF', edgecolor='#DDDDDD', zorder=2)
+    ax.add_patch(rect_header)
+    plt.text(0.1, 0.915, "🏥 CHARLS Comorbidity Risk Prediction Platform", fontsize=16, fontweight='bold', color='#FF4B4B', zorder=3)
+    rect_sidebar = patches.Rectangle((0.05, 0.05), 0.25, 0.83, facecolor='#FFFFFF', edgecolor='#DDDDDD', zorder=2)
+    ax.add_patch(rect_sidebar)
+    plt.text(0.08, 0.82, "User Health Profile", fontsize=12, fontweight='bold', zorder=3)
+    inputs = [
+        "Age: 68", "Gender: Male", "Rural: Yes", "Education: Primary", 
+        "BP: 135/85", "Cognition: 15/21", "Baseline Depression: No"
+    ]
+    for i, text in enumerate(inputs):
+        plt.text(0.08, 0.77 - i*0.05, f"▢ {text}", fontsize=10, zorder=3)
+    rect_result = patches.Rectangle((0.35, 0.55), 0.55, 0.28, facecolor='#FFFFFF', edgecolor='#DDDDDD', zorder=2)
+    ax.add_patch(rect_result)
+    plt.text(0.4, 0.78, "Prediction Results", fontsize=12, fontweight='bold', zorder=3)
+    plt.text(0.4, 0.7, "Predicted 2-year Incident Comorbidity Risk:", fontsize=11, zorder=3)
+    plt.text(0.63, 0.65, "12.5%", fontsize=28, fontweight='bold', color='orange', zorder=3)
+    plt.text(0.4, 0.60, "Risk Level: Moderate", fontsize=11, fontweight='bold', color='orange', zorder=3)
+    rect_prog_bg = patches.Rectangle((0.4, 0.58), 0.45, 0.015, facecolor='#EEEEEE', zorder=3)
+    rect_prog_val = patches.Rectangle((0.4, 0.58), 0.125 * 0.45, 0.015, facecolor='orange', zorder=4)
+    ax.add_patch(rect_prog_bg)
+    ax.add_patch(rect_prog_val)
+    rect_shap = patches.Rectangle((0.35, 0.1), 0.55, 0.4, facecolor='#FFFFFF', edgecolor='#DDDDDD', zorder=2)
+    ax.add_patch(rect_shap)
+    plt.text(0.4, 0.45, "Personalized Risk Factor Analysis (Local SHAP)", fontsize=12, fontweight='bold', zorder=3)
+    plt.arrow(0.4, 0.35, 0.3, 0, head_width=0.03, head_length=0.03, fc='#FF4B4B', ec='#FF4B4B', lw=10, zorder=3)
+    plt.text(0.5, 0.38, "Depression (+)", fontsize=9, color='#FF4B4B', zorder=4)
+    plt.text(0.6, 0.38, "Low Sleep (+)", fontsize=9, color='#FF4B4B', zorder=4)
+    plt.arrow(0.85, 0.35, -0.15, 0, head_width=0.03, head_length=0.03, fc='#0068C9', ec='#0068C9', lw=10, zorder=3)
+    plt.text(0.75, 0.32, "High Cognition (-)", fontsize=9, color='#0068C9', zorder=4)
+    plt.title('Figure S15. Web-based clinical decision-support platforms for 2-year comorbidity risk prediction', fontsize=14, fontweight='bold', pad=30)
+    plt.savefig(os.path.join(output_dir, 'figS15_web_mockup_final.png'), dpi=300, bbox_inches='tight')
+    plt.close()
+    print("✅ Figure S15 Web UI 截图已模拟产出。")
+if __name__ == "__main__":
+    generate_figure_s15_mockup()

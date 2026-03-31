@@ -1,0 +1,85 @@
+# run_multi_exposure_causal.py (Original: 115 lines, Cleaned: 84 lines)
+# -*- coding: utf-8 -*-
+import os
+import logging
+import pandas as pd
+import numpy as np
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler()]
+)
+logger = logging.getLogger(__name__)
+from charls_complete_preprocessing import preprocess_charls_data
+from charls_recalculate_causal_impact import estimate_causal_impact
+EXPOSURES = [
+    ('exercise', None),           # 规律运动 1 vs 0
+    ('sleep_adequate', 'sleep'), # 充足睡眠(>=6h) 1 vs 0，从 sleep 构造
+    ('smokev', None),            # 当前吸烟 1 vs 0（风险因素）
+    ('drinkev', None),           # 当前饮酒 1 vs 0
+    ('is_socially_isolated', None),  # 社会隔离 1 vs 0（风险因素）
+]
+def prepare_exposures(df):
+    if 'sleep' in df.columns:
+        sleep_val = df['sleep'].clip(0, 24)
+        df['sleep_adequate'] = (sleep_val >= 6).astype(int)
+        df.loc[sleep_val.isna(), 'sleep_adequate'] = np.nan
+        logger.info(f"sleep_adequate: {df['sleep_adequate'].notna().sum()} non-missing, mean={df['sleep_adequate'].mean():.2f}")
+    return df
+def run_multi_exposure_analysis(df_clean, output_root='multi_exposure_causal'):
+    if 'sleep_adequate' not in df_clean.columns:
+        prepare_exposures(df_clean)
+    df_a = df_clean[df_clean['baseline_group'] == 0].copy()
+    df_b = df_clean[df_clean['baseline_group'] == 1].copy()
+    df_c = df_clean[df_clean['baseline_group'] == 2].copy()
+    results = []
+    os.makedirs(output_root, exist_ok=True)
+    for col, _ in EXPOSURES:
+        treatment_col = col
+        if treatment_col not in df_clean.columns:
+            logger.warning(f"跳过 {treatment_col}：列不存在")
+            continue
+        for axis_name, df_sub in [('Axis_A', df_a), ('Axis_B', df_b), ('Axis_C', df_c)]:
+            if len(df_sub) < 50:
+                logger.warning(f"{axis_name} 样本过少，跳过")
+                continue
+            out_dir = os.path.join(output_root, axis_name, treatment_col)
+            os.makedirs(out_dir, exist_ok=True)
+            _, (ate, lb, ub) = estimate_causal_impact(df_sub, treatment_col=treatment_col, output_dir=out_dir)
+            sig = 1 if (lb > 0 or ub < 0) else 0
+            reliable = 1 if -1 <= ate <= 1 else 0
+            results.append({
+                'exposure': treatment_col,
+                'axis': axis_name,
+                'ate': ate,
+                'ate_lb': lb,
+                'ate_ub': ub,
+                'significant': sig,
+                'reliable': reliable,
+                'n': len(df_sub),
+            })
+            logger.info(f"  {axis_name} {treatment_col}: ATE={ate:.4f} (95% CI: {lb:.4f}, {ub:.4f}) {'*显著*' if sig else ''}")
+    res_df = pd.DataFrame(results)
+    out_csv = os.path.join(output_root, 'multi_exposure_ate_summary.csv')
+    res_df.to_csv(out_csv, index=False, encoding='utf-8-sig')
+    logger.info(f"多暴露因果汇总已保存: {out_csv}")
+    return res_df
+def run_multi_exposure():
+    df = preprocess_charls_data('CHARLS.csv', age_min=60)
+    if df is None:
+        logger.error("预处理失败")
+        return
+    res_df = run_multi_exposure_analysis(df, output_root='multi_exposure_causal')
+    sig_df = res_df[(res_df['significant'] == 1) & (res_df['reliable'] == 1)]
+    unreliable = res_df[res_df['reliable'] == 0]
+    if len(unreliable) > 0:
+        logger.info(f"\n不可靠估计（ATE 超出 [-1,1]，可能因治疗组极少）: {list(unreliable['exposure'].unique())}")
+    if len(sig_df) > 0:
+        logger.info(f"\n显著结果 ({len(sig_df)} 个):")
+        for _, r in sig_df.iterrows():
+            logger.info(f"  {r['exposure']} @ {r['axis']}: ATE={r['ate']:.4f} (95% CI: {r['ate_lb']:.4f}, {r['ate_ub']:.4f})")
+    else:
+        logger.info("\n无显著结果（所有 95% CI 均包含 0）")
+    return res_df
+if __name__ == '__main__':
+    run_multi_exposure()

@@ -1,0 +1,48 @@
+# generate_table_s4_full.py (Original: 83 lines, Cleaned: 47 lines)
+import pandas as pd
+import os
+OUTPUT_DIR = "FINAL_PAPER_TABLES"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+def generate_table_s4_full():
+    print(">>> 正在生成完整的 Table S4 (95% & 90% CI)...")
+    src_path = r'results/tables/table4_ate_summary.csv'
+    if not os.path.exists(src_path):
+        print(f"Error: Source file not found: {src_path}")
+        return
+    df = pd.read_csv(src_path)
+    df = df[df['reliable'] == 1].copy()
+    def calc_90_ci(row):
+        ate = row['ate']
+        lb_95 = row['ate_lb']
+        ub_95 = row['ate_ub']
+        se = (ub_95 - ate) / 1.96
+        lb_90 = ate - 1.645 * se
+        ub_90 = ate + 1.645 * se
+        ci_95_str = f"{lb_95:.3f}, {ub_95:.3f}"
+        ci_90_str = f"{lb_90:.3f}, {ub_90:.3f}"
+        sig_90 = "*" if (lb_90 > 0 or ub_90 < 0) else ""
+        return pd.Series([ci_95_str, ci_90_str + sig_90])
+    df[['95% CI', '90% CI']] = df.apply(calc_90_ci, axis=1)
+    cohort_map = {
+        'Cohort_A': 'Cohort A (Healthy)',
+        'Cohort_B': 'Cohort B (Depression)',
+        'Cohort_C': 'Cohort C (Cognition)'
+    }
+    df['Cohort'] = df['axis'].map(cohort_map)
+    intervention_map = {
+        'exercise': 'Exercise',
+        'sleep_adequate': 'Adequate Sleep',
+        'smokev': 'Smoking',
+        'drinkev': 'Drinking',
+        'bmi_normal': 'Normal BMI',
+        'chronic_low': 'Low Chronic Disease'
+    }
+    df['Intervention'] = df['exposure'].map(intervention_map).fillna(df['exposure'])
+    final_df = df[['Cohort', 'Intervention', 'ate', '95% CI', '90% CI']].rename(columns={'ate': 'ATE'})
+    final_df = final_df.sort_values(['Cohort', 'Intervention'])
+    output_path = os.path.join(OUTPUT_DIR, 'Table_S4_Exploratory_Causal_Analysis_Full.csv')
+    final_df.to_csv(output_path, index=False, encoding='utf-8-sig')
+    print(f"Table S4 (Full) generated at: {output_path}")
+    print(final_df.head().to_string())
+if __name__ == "__main__":
+    generate_table_s4_full()

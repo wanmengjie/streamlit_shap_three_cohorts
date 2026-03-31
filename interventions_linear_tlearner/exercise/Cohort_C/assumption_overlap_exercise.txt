@@ -1,0 +1,6 @@
+=== 正性/重叠假设检验 (Positivity/Overlap) ===
+Treatment: exercise
+N: 2435, T=1: 1213, T=0: 1222
+PS range: [0.1230, 0.9258]
+Samples with PS outside [0.05,0.95]: 0 (0.0%)
+Interpretation: <10% excluded suggests adequate overlap.

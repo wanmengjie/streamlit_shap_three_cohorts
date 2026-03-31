@@ -1,0 +1,103 @@
+# charls_sensitivity_analysis.py (Original: 138 lines, Cleaned: 102 lines)
+import pandas as pd
+import numpy as np
+import os
+import logging
+import matplotlib.pyplot as plt
+from sklearn.utils import shuffle
+from sklearn.linear_model import LinearRegression
+from sklearn.impute import SimpleImputer
+logger = logging.getLogger(__name__)
+def run_sensitivity_analysis(df, output_dir='evaluation_results', treatment_col=None):
+    causal_col = next((c for c in df.columns if c.startswith('causal_impact_')), None)
+    if causal_col is None:
+        logger.warning("未找到 causal_impact_xxx 列，跳过敏感性分析。")
+        return False
+    if treatment_col is None:
+        treatment_col = 'exercise' if 'exercise' in causal_col else ('is_depression' if 'depression' in causal_col else 'is_cognitive_impairment')
+    analysis_tag = treatment_col.replace('is_', '') if treatment_col else 'causal'
+    if treatment_col not in df.columns:
+        logger.warning(f"干预列 {treatment_col} 不在数据中，跳过敏感性分析。")
+        return False
+    output_dir = os.path.join(output_dir, f'sensitivity_{analysis_tag}')
+    os.makedirs(output_dir, exist_ok=True)
+    logger.info(f">>> 启动 {treatment_col} 的敏感性分析...")
+    Y = 'is_comorbidity_next'
+    T = treatment_col
+    df_num = df.select_dtypes(include=[np.number]).copy()
+    imputer = SimpleImputer(strategy='median')
+    df_clean = pd.DataFrame(imputer.fit_transform(df_num), columns=df_num.columns)
+    logger.info("执行特征噪声稳定性测试...")
+    noise_results = []
+    important_vars = ['age', 'sleep', 'bmi']
+    original_causal_mean = df[causal_col].mean()
+    from charls_feature_lists import get_exclude_cols
+    exclude_base = get_exclude_cols(df, target_col=Y, treatment_col=T)
+    exclude_all = list(exclude_base) + [c for c in df_clean.columns if c.startswith('causal_impact_')]
+    for var in important_vars:
+        if var in df_clean.columns:
+            df_noise = df_clean.copy()
+            std = df_noise[var].std()
+            df_noise[var] += np.random.normal(0, std * 0.1, size=len(df_noise))
+            model = LinearRegression()
+            X_cols_noise = [c for c in df_noise.columns if c not in exclude_all and c != T]
+            X_tmp = np.column_stack([df_noise[T], df_noise[X_cols_noise]])
+            model.fit(X_tmp, df_noise[Y])
+            noise_results.append({'Variable': var, 'New_ATE': model.coef_[0]})
+    if noise_results:
+        plt.figure(figsize=(8, 5))
+        vars_plot = [r['Variable'] for r in noise_results]
+        ates_plot = [r['New_ATE'] for r in noise_results]
+        plt.bar(vars_plot, ates_plot, color='teal', alpha=0.5, label='ATE with 10% Noise')
+        plt.axhline(y=original_causal_mean, color='red', linestyle='--', label=f'Original ATE ({original_causal_mean:.3f})')
+        plt.title(f'Noise Robustness Test ({analysis_tag})')
+        plt.legend()
+        plt.savefig(os.path.join(output_dir, 'fig_noise_test_stability.png'), dpi=300)
+        plt.close()
+    logger.info("执行 Placebo Test (100次重采样)...")
+    placebo_effects = []
+    X_cols = [c for c in df_clean.columns if c not in exclude_all and c != T]
+    X = df_clean[X_cols]
+    y = df_clean[Y]
+    for i in range(100):
+        T_shuffled = shuffle(df_clean[T].values)
+        model = LinearRegression()
+        X_tmp = np.column_stack([T_shuffled, X])
+        model.fit(X_tmp, y)
+        placebo_effects.append(model.coef_[0])
+    plt.figure(figsize=(8, 6))
+    plt.hist(placebo_effects, bins=20, alpha=0.7, color='gray', edgecolor='black', label='Placebo Effects')
+    plt.axvline(x=original_causal_mean, color='red', linestyle='--', linewidth=2, label=f'Original Effect ({original_causal_mean:.4f})')
+    plt.title(f'Placebo Test ({analysis_tag})')
+    plt.xlabel('Causal Effect Estimate')
+    plt.legend()
+    plt.savefig(os.path.join(output_dir, 'sensitivity_placebo_test.png'))
+    plt.close()
+    model_rr = LinearRegression()
+    model_rr.fit(df_clean[[T]], df_clean[Y])
+    beta = model_rr.coef_[0]
+    baseline_risk = df_clean[df_clean[T] == 0][Y].mean()
+    if pd.isna(baseline_risk) or baseline_risk < 0.001: baseline_risk = 0.05
+    rr = (baseline_risk + beta) / (baseline_risk + 1e-9)
+    if rr < 1: rr = 1 / (rr + 1e-9)
+    e_value = rr + np.sqrt(rr * (rr - 1))
+    logger.info(f"敏感性分析完成。RR: {rr:.2f}, E-Value: {e_value:.2f}")
+    plt.figure(figsize=(8, 6))
+    plt.hist(placebo_effects, bins=20, alpha=0.7, color='gray', edgecolor='black', label='Placebo Effects')
+    plt.axvline(x=original_causal_mean, color='red', linestyle='--', linewidth=2, label=f'Original Effect ({original_causal_mean:.4f})\nE-Value: {e_value:.2f}')
+    plt.title(f'Figure S14: Placebo Test & E-Value Sensitivity ({analysis_tag})')
+    plt.xlabel('Causal Effect Estimate')
+    plt.legend()
+    plt.savefig(os.path.join(output_dir, 'fig_s14_placebo_e_value.png'), dpi=300)
+    plt.close()
+    with open(os.path.join(output_dir, 'sensitivity_report.txt'), 'w', encoding='utf-8') as f:
+        f.write(f"Sensitivity Analysis Report for {treatment_col}\n")
+        f.write(f"Original Ate (from DML): {original_causal_mean:.4f}\n")
+        f.write(f"Estimated RR: {rr:.4f}\n")
+        f.write(f"E-Value: {e_value:.4f}\n")
+    try:
+        from charls_bias_analysis import run_bias_sensitivity
+        run_bias_sensitivity(df, causal_col, treatment_col, output_dir, target_col=Y)
+    except Exception as e:
+        logger.debug(f"偏倚分析跳过: {e}")
+    return True

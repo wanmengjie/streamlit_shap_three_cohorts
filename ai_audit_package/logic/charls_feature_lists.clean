@@ -1,0 +1,46 @@
+# charls_feature_lists.py (Original: 69 lines, Cleaned: 45 lines)
+# -*- coding: utf-8 -*-
+import pandas as pd
+LEAKAGE_KEYWORDS = [
+    'cesd', 'total_cog', 'cognition', 'memory', 'executive', 'score', 'test'
+]
+CONTINUOUS_FOR_SCALING = [
+    'age', 'bmi', 'mwaist', 'puff', 'systo', 'diasto', 'pulse',
+    'lgrip',  # rgrip 已排除，仅保留左握力
+    'income_total', 'family_size',
+    'adlab_c', 'iadl', 'wspeed',  # 新增：ADL/IADL 困难数、步行速度
+]
+EXCLUDE_COLS_BASE = [
+    'ID', 'wave', 'province', 'communityID',
+    'is_comorbidity', 'is_comorbidity_next', 'is_fall_next',
+    'baseline_group', 'first_com_wave', 'causal_impact',
+    'is_depression', 'is_cognitive_impairment',
+    'is_depression_next', 'is_cognitive_impairment_next',
+    'chronic_burden',  # 保留8种慢病明细，排除综合负担
+    'risk_age_chronic', 'lifestyle_active_sleep', 'frailty_proxy',  # 二次加工特征，与原始变量共线
+    'psyche',  # 精神疾病与抑郁定义重叠，排除
+    'grip_strength_avg',  # 握力均值排除（与左右握力冗余或按审稿意见移除）
+    'rgrip',  # 与 lgrip 高度共线（r>0.9），仅保留 lgrip
+    'sleep',  # [核心修改] 排除连续变量 sleep，仅保留二分类 sleep_adequate
+]
+def get_exclude_cols(df, target_col=None, treatment_col=None, include_causal_impact_prefix=True):
+    out = list(EXCLUDE_COLS_BASE)
+    if target_col and target_col not in out:
+        out.append(target_col)
+    if treatment_col and treatment_col not in out:
+        out.append(treatment_col)
+    if include_causal_impact_prefix and df is not None:
+        out.extend([c for c in df.columns if c.startswith('causal_impact_')])
+    for kw in LEAKAGE_KEYWORDS:
+        out.extend([c for c in df.columns if kw in c.lower()])
+    if treatment_col == 'sleep_adequate' and df is not None and 'sleep' in df.columns:
+        out.append('sleep')
+    if treatment_col == 'exercise_sleep_both' and df is not None:
+        for c in ('exercise', 'sleep_adequate', 'sleep'):
+            if c in df.columns:
+                out.append(c)
+    if treatment_col == 'bmi_normal' and df is not None and 'bmi' in df.columns:
+        out.append('bmi')
+    if treatment_col == 'chronic_low' and df is not None and 'chronic_burden' in df.columns:
+        out.append('chronic_burden')
+    return list(set(out))

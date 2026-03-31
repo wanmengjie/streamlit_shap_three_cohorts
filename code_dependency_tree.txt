@@ -1,0 +1,118 @@
+run_all_charls_analyses.py
+    ├── main()
+    ├── run_axis_protocol()
+    ├── config.py
+    │       └── (全局配置: TARGET_COL, TREATMENT_COL, RANDOM_SEED, OUTPUT_ROOT, AXIS_*_DIR, ...)
+    ├── charls_complete_preprocessing.py
+    │       ├── preprocess_charls_data()
+    │       └── reapply_cohort_definition()
+    ├── charls_table1_stats.py
+    │       └── generate_baseline_table()
+    ├── charls_model_comparison.py
+    │       ├── compare_models()
+    │       ├── charls_ci_utils.py
+    │       │       └── get_metrics_with_ci()
+    │       └── charls_feature_lists.py
+    │               └── get_exclude_cols(), CONTINUOUS_FOR_SCALING
+    ├── charls_shap_analysis.py
+    │       ├── run_shap_analysis_v2()
+    │       └── charls_feature_lists.py
+    │               └── get_exclude_cols()
+    ├── charls_clinical_evaluation.py
+    │       ├── run_clinical_evaluation()
+    │       └── charls_feature_lists.py
+    │               └── get_exclude_cols()
+    ├── charls_clinical_decision_support.py
+    │       ├── run_clinical_decision_support()
+    │       └── charls_feature_lists.py (条件导入)
+    │               └── get_exclude_cols()
+    ├── charls_subgroup_analysis.py
+    │       ├── run_subgroup_analysis()
+    │       └── draw_performance_radar()
+    ├── charls_recalculate_causal_impact.py
+    │       ├── estimate_causal_impact()
+    │       ├── cleanup_temp_cat_dirs()
+    │       └── charls_feature_lists.py
+    │               └── get_exclude_cols(), CONTINUOUS_FOR_SCALING
+    ├── charls_imputation_audit.py
+    │       ├── run_imputation_sensitivity_preprocessed()
+    │       └── charls_feature_lists.py (条件导入)
+    │               └── get_exclude_cols()
+    ├── run_sensitivity_scenarios.py
+    │       ├── run_sensitivity_scenarios_analysis()
+    │       ├── _get_train_subset()
+    │       ├── charls_complete_preprocessing.py
+    │       │       ├── preprocess_charls_data()
+    │       │       └── reapply_cohort_definition()
+    │       └── charls_recalculate_causal_impact.py
+    │               ├── estimate_causal_impact()
+    │               └── cleanup_temp_cat_dirs()
+    ├── run_multi_exposure_causal.py
+    │       ├── prepare_exposures()
+    │       ├── run_multi_exposure_analysis()
+    │       ├── charls_complete_preprocessing.py
+    │       │       └── preprocess_charls_data()
+    │       └── charls_recalculate_causal_impact.py
+    │               └── estimate_causal_impact()
+    ├── draw_attrition_flowchart.py
+    │       └── draw_flowchart()
+    ├── charls_extra_figures.py
+    │       ├── draw_all_extra_figures()
+    │       └── config.py
+    ├── draw_conceptual_framework.py
+    │       └── draw_conceptual_framework()
+    ├── draw_roc_combined.py
+    │       └── draw_roc_combined()
+    ├── charls_external_validation.py
+    │       ├── run_external_validation()
+    │       └── charls_feature_lists.py
+    │               └── get_exclude_cols(), CONTINUOUS_FOR_SCALING
+    ├── charls_shap_stratified.py
+    │       ├── run_stratified_shap()
+    │       ├── run_shap_interaction()
+    │       └── charls_feature_lists.py
+    │               └── get_exclude_cols()
+    ├── charls_dose_response.py
+    │       ├── run_dose_response()
+    │       └── charls_feature_lists.py
+    │               └── get_exclude_cols(), CONTINUOUS_FOR_SCALING
+    ├── charls_ite_validation.py
+    │       └── run_ite_stratified_validation()
+    ├── charls_causal_methods_comparison.py
+    │       ├── run_causal_methods_comparison()
+    │       ├── run_all_axes_comparison()
+    │       └── charls_feature_lists.py
+    │               └── get_exclude_cols(), CONTINUOUS_FOR_SCALING
+    ├── charls_temporal_analysis.py
+    │       ├── run_temporal_analysis()
+    │       └── charls_feature_lists.py
+    │               └── get_exclude_cols()
+    ├── charls_nomogram.py
+    │       ├── run_nomogram()
+    │       └── charls_feature_lists.py
+    │               └── get_exclude_cols()
+    ├── run_all_interventions_analysis.py (条件导入)
+    │       ├── run_all_interventions()
+    │       ├── charls_complete_preprocessing.py
+    │       │       └── preprocess_charls_data()
+    │       ├── charls_recalculate_causal_impact.py
+    │       │       ├── estimate_causal_impact()
+    │       │       └── cleanup_temp_cat_dirs()
+    │       └── charls_sensitivity_analysis.py
+    │               └── run_sensitivity_analysis()
+    ├── charls_low_sample_optimization.py (条件导入)
+    │       ├── run_for_social_isolation_and_chronic()
+    │       └── charls_feature_lists.py
+    │               └── get_exclude_cols()
+    └── charls_sensitivity_analysis.py
+            ├── run_sensitivity_analysis()
+            └── charls_bias_analysis.py (条件导入)
+                    └── run_bias_sensitivity()
+
+
+--- 共享基础模块（被多处引用）---
+charls_feature_lists.py
+    └── get_exclude_cols(), CONTINUOUS_FOR_SCALING
+
+charls_ci_utils.py
+    └── get_metrics_with_ci()

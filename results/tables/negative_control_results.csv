@@ -1,0 +1,4 @@
+﻿cohort,negative_control_outcome,treatment,n_after_trim,n_before_trim,ate,ate_lb,ate_ub,p_two_sided_approx,ate_ci_source
+A,is_fall_next,exercise,6532,6532,0.0007939340557776182,-0.02005564390264879,0.013899895153060235,0.9269715299884085,cluster_bootstrap_percentile
+B,is_fall_next,exercise,2352,2352,-0.02023781798208808,-0.04176538433796866,0.014714369335270833,0.1601361241174848,cluster_bootstrap_percentile
+C,is_fall_next,exercise,1856,1856,0.017574732847034896,-0.017432513477084063,0.04635306576334155,0.2801105757300917,cluster_bootstrap_percentile

@@ -1,0 +1,6 @@
+=== E-Value: 未测量混杂敏感性 (Unmeasured Confounding) ===
+Treatment: chronic_low
+ATE: -0.0122, 95%% CI: (-0.0374, 0.0177)
+E-Value (point): 1.40
+E-Value (conservative, from 95%% CI): 2.01
+Interpretation: An unmeasured confounder would need RR>=E with both T and Y to explain away the effect.

@@ -1,0 +1,5 @@
+=== 协变量平衡检验 (Covariate Balance / SMD) ===
+Treatment: exercise
+Max |SMD|: 0.6004
+Covariates with |SMD|>=0.1: 17 / 37
+Interpretation: |SMD|<0.1 balanced; 0.1-0.2 moderate; >0.2 substantial imbalance.

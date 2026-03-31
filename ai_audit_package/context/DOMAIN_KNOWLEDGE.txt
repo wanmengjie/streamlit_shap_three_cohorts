@@ -1,0 +1,28 @@
+# CHARLS 数据库与业务上下文
+
+## 数据来源
+- China Health and Retirement Longitudinal Study (CHARLS)，中国健康与养老追踪调查
+- 波次：wave 1–4，间隔约 2 年
+- 年龄：≥60 岁纳入分析（AGE_MIN=60）
+
+## 缺失值编码与处理
+- 干预变量（exercise/sleep/smokev/drinkev 等）：部分代码对缺失使用 fillna(0)，即按未暴露处理；论文附录 S2 要求核心干预变量完整病例分析
+- 协变量：SimpleImputer(strategy='median') 或 MissForest 插补（USE_IMPUTED_DATA 时）
+- 结局 is_comorbidity_next：缺失行 dropna，不插补
+
+## 关键变量定义
+- is_depression: CES-D-10 ≥ cesd_cutoff（默认 10）
+- is_cognitive_impairment: total_cognition/total_cog ≤ cognition_cutoff（默认 10）
+- is_comorbidity: 抑郁与认知受损同时存在
+- is_comorbidity_next: 下一波是否发生共病（主结局）
+- baseline_group: 0=健康(A), 1=仅抑郁(B), 2=仅认知受损(C)
+- exercise: 规律运动，二值 0/1
+- sleep_adequate: 睡眠≥6h 为 1，由 sleep 列二值化
+
+## 三队列划分
+- Cohort A: baseline_group==0，基线无抑郁无认知受损
+- Cohort B: baseline_group==1，基线仅抑郁
+- Cohort C: baseline_group==2，基线仅认知受损
+
+## 泄露风险排除（LEAKAGE_KEYWORDS）
+列名含 cesd/total_cog/cognition/memory/executive/score/test 等一律排除，避免用结局相关测量预测结局。

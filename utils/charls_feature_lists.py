@@ -18,12 +18,15 @@ CATEGORICAL_NO_SCALE = [
     'is_socially_isolated', 'pension',
 ]
 
-# 真正连续型变量：仅对这些列做 StandardScaler；puff 已移除，其余已恢复
+# 有序计数 / 家庭人数 / ADL·IADL 困难项计分：Pipeline 中仅 IterativeImputer，不做 StandardScaler
+# （保持整数档位语义；见 build_numeric_column_transformer 的 pass 分支）
+ORDINAL_COUNT_IMPUTE_ONLY = ('adlab_c', 'iadl', 'family_size')
+
+# 真正连续型变量：仅对这些列做 StandardScaler（与 pass 分支互斥）
 CONTINUOUS_FOR_SCALING = [
     'age', 'bmi', 'pulse',
     'mwaist', 'systo', 'diasto', 'lgrip', 'wspeed', 'sleep',
-    'income_total', 'family_size',
-    'adlab_c', 'iadl',
+    'income_total',
 ]
 # 运行时校验：防止误将分类变量加入
 assert not (set(CONTINUOUS_FOR_SCALING) & set(CATEGORICAL_NO_SCALE)), \

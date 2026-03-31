@@ -1,0 +1,9 @@
+Treatment: iadl_no_difficulty
+ATE (point estimate): -0.0338
+95% CI: (-0.4421, 0.3744)
+90% CI: (-0.3765, 0.3088)
+N: 3123
+Overlap trimming (PS not in [0.05,0.95]): 1532 excluded (49.1%)
+E-Value (point): 1.97
+E-Value (conservative, from 95%% CI): 0.36
+  (Unmeasured confounder would need RR≥E with both T and Y to explain away the effect)

@@ -1,0 +1,6 @@
+=== 正性/重叠假设检验 (Positivity/Overlap) ===
+Treatment: drinkev
+N: 3123, T=1: 1536, T=0: 1587
+PS range: [0.1478, 0.8200]
+Samples with PS outside [0.05,0.95]: 0 (0.0%)
+Interpretation: <10% excluded suggests adequate overlap.

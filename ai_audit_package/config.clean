@@ -1,0 +1,27 @@
+# config.py (Original: 57 lines, Cleaned: 26 lines)
+# -*- coding: utf-8 -*-
+TARGET_COL = 'is_comorbidity_next'
+TREATMENT_COL = 'exercise'
+AGE_MIN = 60
+INTERVENABLE_KEYWORDS = ['exercise', 'sleep', 'smokev', 'drinkev', 'social']
+TOP_N_FOR_STRONG_NARRATIVE = 15
+RANDOM_SEED = 500
+CESD_CUTOFF = 10
+COGNITION_CUTOFF = 10
+OUTPUT_ROOT = 'LIU_JUE_STRATEGIC_SUMMARY'
+AXIS_A_DIR = 'Cohort_A_Healthy_Prospective'
+AXIS_B_DIR = 'Cohort_B_Depression_to_Comorbidity'
+AXIS_C_DIR = 'Cohort_C_Cognition_to_Comorbidity'
+RESULTS_ROOT = 'results'
+RESULTS_TABLES = 'results/tables'
+RESULTS_FIGURES = 'results/figures'
+RESULTS_MODELS = 'results/models'
+SAVE_INTERMEDIATE = True  # 是否保存中间过程的 CSV 文件
+BBOX_INCHES = 'tight'     # 绘图保存参数
+ANALYSIS_LOCK = True  # True 时全流程使用 RANDOM_SEED，保证可重复
+USE_IMPUTED_DATA = True
+IMPUTED_DATA_PATH = 'imputation_npj_results/pipeline_trace/step1_imputed_full.csv'
+CALIPER_PSM = 0.024
+import matplotlib
+matplotlib.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei', 'DejaVu Sans', 'Arial']
+matplotlib.rcParams['axes.unicode_minus'] = False  # 负号不显示为方框

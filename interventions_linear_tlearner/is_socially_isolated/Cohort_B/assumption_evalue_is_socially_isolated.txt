@@ -1,0 +1,6 @@
+=== E-Value: 未测量混杂敏感性 (Unmeasured Confounding) ===
+Treatment: is_socially_isolated
+ATE: 0.0109, 95%% CI: (-0.0370, 0.0474)
+E-Value (point): 1.38
+E-Value (conservative, from 95%% CI): 2.09
+Interpretation: An unmeasured confounder would need RR>=E with both T and Y to explain away the effect.
