@@ -61,7 +61,6 @@ STRINGS: dict[str, str] = {
     "app_title": "Comorbidity Risk Prediction in Older Adults",
     "app_subtitle": "Depression–Cognition Comorbidity (DCC) · CHARLS Longitudinal Study · CPM + SHAP",
     "hero_main_title": "Comorbidity Risk Prediction in Older Adults",
-    "brand_short": "CHARLS · supplement",
     "home_eyebrow": "Supplementary interactive demo",
     "home_tagline": "Three-cohort next-wave incident DCC prediction and local SHAP",
     "home_about_title": "Purpose",
@@ -509,12 +508,6 @@ def _inject_app_css() -> None:
   [data-testid="stSidebar"] [data-baseweb="select"] > div {
     background: var(--surface) !important; border-color: var(--line-strong) !important; border-radius: var(--r-sm) !important;
   }
-  /* 侧栏品牌名 */
-  .pd-sidebar-top {
-    font-size: 0.7rem; font-weight: 700; color: var(--brand);
-    padding: 0.15rem 0 0.6rem; letter-spacing: 0.08em; text-transform: uppercase;
-    border-bottom: 2px solid var(--brand); margin-bottom: 0.6rem;
-  }
   /* 侧栏分组标题 */
   .sb-group-hdr {
     font-size: 0.65rem; font-weight: 700; color: var(--ink-soft);
@@ -533,7 +526,6 @@ def _inject_app_css() -> None:
     margin-bottom: 1rem; box-shadow: var(--sh-sm);
   }
   .cohort-bar-name { font-size: 1rem; font-weight: 700; color: var(--ink); letter-spacing: -0.01em; }
-  .cohort-bar-meta { font-size: 0.78rem; color: var(--ink-soft); }
 
   /* ── 分区标题 ────────────────────────────────────────────────────── */
   .sec-title {
@@ -645,7 +637,6 @@ def _inject_app_css() -> None:
   .risk-tier-line.risk-high{ color:var(--risk-red); }
   .risk-tier-line.risk-med { color:#8a4500; }
   .risk-tier-line.risk-low { color:#1e5c30; }
-  .pd-sidebar-top          { font-size:.7rem; font-weight:700; color:var(--brand); padding:.15rem 0 .6rem; letter-spacing:.08em; text-transform:uppercase; border-bottom:2px solid var(--brand); margin-bottom:.6rem; }
   .feat-count, .stat-grid, .stat-card, .input-hint-box,
   .paper-step-h5, .paper-step-desc, .pd-section-label { font-size:0.82rem; color:var(--ink-muted); }
 </style>
@@ -1439,7 +1430,6 @@ COHORT_META = [
         "baseline": 0,
         "dir": COHORT_A_DIR,
         "title_en": "Cohort A — Baseline healthy",
-        "n_paper": 8828,
         "accent": "#8f9e8b",
     },
     {
@@ -1447,7 +1437,6 @@ COHORT_META = [
         "baseline": 1,
         "dir": COHORT_B_DIR,
         "title_en": "Cohort B — Depression only",
-        "n_paper": 3123,
         "accent": "#8a9bab",
     },
     {
@@ -1455,7 +1444,6 @@ COHORT_META = [
         "baseline": 2,
         "dir": COHORT_C_DIR,
         "title_en": "Cohort C — Cognitive impairment only",
-        "n_paper": 2435,
         "accent": "#a89098",
     },
 ]
@@ -1612,8 +1600,7 @@ def render_cohort_tab(meta: dict):
     st.markdown(
         f'<div class="cohort-bar" style="--coh-accent:{accent};">'
         f'<span class="cohort-bar-name">{html_module.escape(meta["title_en"])}</span>'
-        f'<span class="cohort-bar-meta">Cohort {html_module.escape(key)} &nbsp;·&nbsp; N ≈ {meta["n_paper"]:,}</span>'
-        f'</div>',
+        f"</div>",
         unsafe_allow_html=True,
     )
 
@@ -1905,11 +1892,7 @@ def main():
 
     _inject_app_css()
 
-    # ── 侧边栏：品牌 + 队列选择（无 project root） ──────────────────────
-    st.sidebar.markdown(
-        '<p class="pd-sidebar-top">CHARLS · Supplement</p>',
-        unsafe_allow_html=True,
-    )
+    # ── 侧边栏：队列选择 ───────────────────────────────────────────────
     st.sidebar.markdown(
         '<p class="sb-group-hdr" style="margin-top:0.5rem;">Choose cohort</p>',
         unsafe_allow_html=True,
