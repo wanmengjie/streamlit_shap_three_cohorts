@@ -85,7 +85,7 @@ STRINGS: dict[str, str] = {
     "btn_run_predict": "Run prediction",
     "btn_start_assessment": "Start assessment",
     "sidebar_clinical_params": "Clinical assessment parameters",
-    "sidebar_clinical_hint": "**Numeric**: continuous variables (sliders). **Categorical & binary**: Table 1–aligned levels in this subsample. Values stay within subsample min–max / observed levels.",
+    "sidebar_clinical_hint": "**Numeric**: continuous variables (sliders). **Age** and **family_size** use whole numbers only. **Sex (`gender`)**: **0 = female**, **1 = male**. **Categorical & binary**: Table 1–aligned levels in this subsample. Values stay within subsample min–max / observed levels.",
     "sidebar_section_numeric": "Numeric (continuous)",
     "sidebar_section_categorical": "Categorical & binary",
     "section_assessment_result": "Assessment result",
@@ -327,7 +327,7 @@ def _row_value_for_shap_feature(shap_col: str, row_values: dict[str, float]) -> 
     for k in (raw, stripped):
         if k in row_values:
             try:
-                return f"{float(row_values[k]):.4g}"
+                return _format_input_feature_display(k, float(row_values[k]))
             except (TypeError, ValueError):
                 return str(row_values[k])
     return None
@@ -735,12 +735,25 @@ def _project_root() -> str:
     return _ROOT
 
 
+def _numpy_to_float64_matrix(arr: np.ndarray) -> np.ndarray:
+    """Force any object / string matrix to contiguous float64 (fixes '[1.406E-1]' in cells)."""
+    arr = np.asarray(arr)
+    if arr.size == 0:
+        return arr.astype(np.float64)
+    if arr.dtype == object or arr.dtype.kind in "UO":
+        flat = arr.ravel()
+        coerced = np.fromiter((_coerce_scalar_for_shap(x) for x in flat), dtype=np.float64, count=flat.size)
+        return np.ascontiguousarray(coerced.reshape(arr.shape))
+    out = np.asarray(arr, dtype=np.float64)
+    return np.ascontiguousarray(out)
+
+
 def _preprocessor_transform_to_df(preprocessor, X_num: pd.DataFrame) -> pd.DataFrame:
     """Dense float-friendly frame: sparse matrices → dense; avoids object/str cells in SHAP/XGB."""
     arr = preprocessor.transform(X_num)
     if sp_sparse.issparse(arr):
         arr = arr.toarray()
-    arr = np.asarray(arr)
+    arr = _numpy_to_float64_matrix(np.asarray(arr))
     try:
         names = preprocessor.get_feature_names_out()
         return pd.DataFrame(arr, columns=names, index=X_num.index)
@@ -882,6 +895,18 @@ def _build_explainer(actual_model, X_bg: pd.DataFrame):
             except Exception as e:
                 last_err = e
                 continue
+        # TreeExplainer can still fail on some XGBoost pickle / SHAP builds; Kernel is slower but robust.
+        if last_err is not None and (
+            "could not convert string to float" in str(last_err).lower()
+            or "could not convert" in str(last_err).lower()
+        ):
+            try:
+                n_bg = min(80, max(1, int(X_np.shape[0])))
+                bg = shap.sample(X_np, n_bg)
+                ex = shap.KernelExplainer(actual_model.predict_proba, bg)
+                return ex, "kernel"
+            except Exception:
+                raise last_err
         if last_err is not None:
             raise last_err
     if "LogisticRegression" in model_str:
@@ -1063,10 +1088,44 @@ def _nearest_discrete_level(levels: list[float], v: float) -> float:
 
 def _bps_sex_column(col: str) -> bool:
     c = str(col)
+    if c.lower() == "sex":
+        return True
     for _title, sec_cfg in BPS_SECTIONS:
         if sec_cfg.get("sex_col") == c:
             return True
     return False
+
+
+def _integer_continuous_columns() -> frozenset[str]:
+    """CHARLS / UI: these continuous inputs must be whole numbers (years, household count)."""
+    return frozenset({"age", "family_size"})
+
+
+def _is_integer_continuous_col(col: str) -> bool:
+    return str(col) in _integer_continuous_columns()
+
+
+def _integer_slider_bounds(lo: float, hi: float) -> tuple[int, int]:
+    lo_i = int(np.floor(float(lo)))
+    hi_i = int(np.ceil(float(hi)))
+    if hi_i <= lo_i:
+        hi_i = lo_i + 1
+    return lo_i, hi_i
+
+
+def _format_input_feature_display(col: str, val: float) -> str:
+    """Human-readable value for raw input features (IV. table + SHAP value line)."""
+    c = str(col)
+    if _bps_sex_column(c):
+        code = int(round(float(val)))
+        if code == 0:
+            return "0 (female)"
+        if code == 1:
+            return "1 (male)"
+        return f"{code} (0=female, 1=male)"
+    if _is_integer_continuous_col(c):
+        return str(int(round(float(val))))
+    return f"{float(val):.4g}"
 
 
 def _level_in_discrete(levels: list[float], v: float, *, tol: float = 1e-6) -> bool:
@@ -1088,15 +1147,29 @@ def _categorical_option_label(col: str, v: float, levels: list[float]) -> str:
     ):
         return "No (0)" if abs(float(v)) < 0.5 else "Yes (1)"
     if _bps_sex_column(c):
-        return f"Sex code {int(round(float(v)))}"
+        code = int(round(float(v)))
+        if code == 0:
+            return "Female (0)"
+        if code == 1:
+            return "Male (1)"
+        return f"Code {code} (use 0 = female, 1 = male)"
     return f"{float(v):g}"
 
 
 def _numeric_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Model input matrix: same columns as training. Do **not** drop object columns that hold
+    numeric strings (e.g. CSV quirks ``'[1.406E-1]'``) — ``select_dtypes(number)`` would
+    omit them and break the ColumnTransformer or leave bad dtypes for SHAP.
+    """
     exclude = get_exclude_cols(df, target_col=TARGET_COL)
     cols = [c for c in df.columns if c not in exclude]
-    X = df[cols].select_dtypes(include=[np.number])
-    return X
+    X = df[cols].copy()
+    for c in X.columns:
+        if not pd.api.types.is_numeric_dtype(X[c].dtype):
+            X[c] = X[c].map(_coerce_scalar_for_shap)
+    X = X.apply(lambda s: pd.to_numeric(s, errors="coerce"), axis=0).fillna(0.0)
+    return X.astype(np.float64)
 
 
 def _value_outside_bounds(val: float, lo: float, hi: float) -> bool:
@@ -1196,6 +1269,15 @@ def _params_signature_from_sliders(
                 if hi <= lo:
                     hi = lo + 1.0
                 raw = float(np.clip(float(X_all[c].median()), lo, hi))
+                if _is_integer_continuous_col(c):
+                    lo_i, hi_i = _integer_slider_bounds(lo, hi)
+                    raw = float(int(np.clip(round(raw), lo_i, hi_i)))
+        else:
+            raw = float(raw)
+            if _bps_ui_kind(c) == "continuous" and _is_integer_continuous_col(c):
+                lo, hi = bounds_map[str(c)]
+                lo_i, hi_i = _integer_slider_bounds(lo, hi)
+                raw = float(int(np.clip(round(raw), lo_i, hi_i)))
         pairs.append((str(c), round(float(raw), 6)))
     return tuple(sorted(pairs, key=lambda x: x[0]))
 
@@ -1412,6 +1494,7 @@ def render_cohort_tab(meta: dict):
         f'<p class="sb-group-hdr">{html_module.escape(t("sidebar_clinical_params"))}</p>',
         unsafe_allow_html=True,
     )
+    st.sidebar.markdown(t("sidebar_clinical_hint"))
 
     cols_list = list(X_all.columns)
     display_order, _ = order_columns_for_editor(cols_list)
@@ -1426,16 +1509,36 @@ def render_cohort_tab(meta: dict):
             lo, hi = bounds_map[str(c)]
             if hi <= lo:
                 hi = lo + 1.0
-            if sk not in st.session_state:
-                st.session_state[sk] = float(np.clip(float(X_all[c].median()), lo, hi))
-            st.slider(lab, float(lo), float(hi), key=sk, format="%.4g")
-            med_c = float(np.clip(float(pd.to_numeric(X_all[c], errors="coerce").median()), lo, hi))
-            cur_c = float(st.session_state[sk])
-            st.markdown(
-                f'<p class="slider-median-hint">Current: <strong>{cur_c:.4g}</strong> · '
-                f'Cohort median: <strong>{med_c:.4g}</strong></p>',
-                unsafe_allow_html=True,
-            )
+            if _is_integer_continuous_col(c):
+                lo_i, hi_i = _integer_slider_bounds(lo, hi)
+                if sk not in st.session_state:
+                    med0 = float(np.clip(float(X_all[c].median()), lo, hi))
+                    st.session_state[sk] = int(np.clip(round(med0), lo_i, hi_i))
+                st.slider(lab, int(lo_i), int(hi_i), key=sk, step=1, format="%d")
+                med_c = int(
+                    np.clip(
+                        round(float(pd.to_numeric(X_all[c], errors="coerce").median())),
+                        lo_i,
+                        hi_i,
+                    )
+                )
+                cur_c = int(st.session_state[sk])
+                st.markdown(
+                    f'<p class="slider-median-hint">Current: <strong>{cur_c}</strong> · '
+                    f'Cohort median: <strong>{med_c}</strong></p>',
+                    unsafe_allow_html=True,
+                )
+            else:
+                if sk not in st.session_state:
+                    st.session_state[sk] = float(np.clip(float(X_all[c].median()), lo, hi))
+                st.slider(lab, float(lo), float(hi), key=sk, format="%.4g")
+                med_c = float(np.clip(float(pd.to_numeric(X_all[c], errors="coerce").median()), lo, hi))
+                cur_c = float(st.session_state[sk])
+                st.markdown(
+                    f'<p class="slider-median-hint">Current: <strong>{cur_c:.4g}</strong> · '
+                    f'Cohort median: <strong>{med_c:.4g}</strong></p>',
+                    unsafe_allow_html=True,
+                )
 
     with st.sidebar.expander(t("sidebar_section_categorical"), expanded=False):
         for i, c in enumerate(display_order):
@@ -1478,7 +1581,11 @@ def render_cohort_tab(meta: dict):
                 lo, hi = bounds_map[str(col)]
                 if hi <= lo:
                     hi = lo + 1.0
-                st.session_state[skj] = float(np.clip(float(X_all[col].median()), lo, hi))
+                v = float(np.clip(float(X_all[col].median()), lo, hi))
+                if _is_integer_continuous_col(col):
+                    lo_i, hi_i = _integer_slider_bounds(lo, hi)
+                    v = float(int(np.clip(round(v), lo_i, hi_i)))
+                st.session_state[skj] = v
         st.session_state[f"{key}_run_ver"] = int(st.session_state.get(f"{key}_run_ver", 1)) + 1
         st.rerun()
 
@@ -1555,7 +1662,11 @@ def render_cohort_tab(meta: dict):
         for k, v in row_dict.items():
             x = pd.to_numeric(v, errors="coerce")
             if pd.notna(x):
-                row_simple[str(k)] = float(x)
+                fk = str(k)
+                xv = float(x)
+                if _is_integer_continuous_col(fk):
+                    xv = float(int(round(xv)))
+                row_simple[fk] = xv
 
         st.session_state[cache_key] = {
             "proba": float(proba),
@@ -1730,7 +1841,10 @@ def render_cohort_tab(meta: dict):
     rv = row_vals_map
     if rv:
         df_feat = pd.DataFrame(
-            [(str(k), float(v)) for k, v in rv.items()],
+            [
+                (str(k), _format_input_feature_display(str(k), float(v)))
+                for k, v in rv.items()
+            ],
             columns=[t("manual_col_var"), t("manual_col_val")],
         )
         st.markdown(
