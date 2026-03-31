@@ -32,7 +32,7 @@ def load_df_for_analysis(apply_config_drop=True):
         COGNITION_CUTOFF,
     )
     from data.charls_complete_preprocessing import preprocess_charls_data, reapply_cohort_definition
-    from scripts.run_multi_exposure_causal import prepare_exposures
+    from utils.charls_prepare_exposures import prepare_exposures
 
     df_clean = None
     if USE_IMPUTED_DATA and IMPUTED_DATA_PATH and os.path.exists(IMPUTED_DATA_PATH):
@@ -92,7 +92,7 @@ def load_supervised_prediction_df(apply_config_drop=True):
     """
     from config import USE_IMPUTED_DATA, RAW_DATA_PATH, AGE_MIN, COLS_TO_DROP, CESD_CUTOFF, COGNITION_CUTOFF
     from data.charls_complete_preprocessing import preprocess_charls_data, reapply_cohort_definition
-    from scripts.run_multi_exposure_causal import prepare_exposures
+    from utils.charls_prepare_exposures import prepare_exposures
 
     if not USE_IMPUTED_DATA:
         return load_df_for_analysis(apply_config_drop=apply_config_drop)
