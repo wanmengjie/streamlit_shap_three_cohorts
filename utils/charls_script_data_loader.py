@@ -11,6 +11,22 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
+def _repo_root() -> str:
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _resolve_repo_path(rel_or_abs: str) -> str:
+    if os.path.isabs(rel_or_abs):
+        return rel_or_abs
+    return os.path.join(_repo_root(), rel_or_abs)
+
+
+def _bundled_demo_table_path() -> str | None:
+    """Streamlit Cloud / 无 CHARLS 时使用仓库内演示表（与插补表后处理一致，非完整科研样本）。"""
+    p = os.path.join(_repo_root(), "data", "sample_data.csv")
+    return p if os.path.isfile(p) else None
+
+
 def load_df_for_analysis(apply_config_drop=True):
     """
     按 config 加载分析用宽表：优先插补 CSV，失败则 preprocess_charls_data。
@@ -35,7 +51,8 @@ def load_df_for_analysis(apply_config_drop=True):
     from utils.charls_prepare_exposures import prepare_exposures
 
     df_clean = None
-    if USE_IMPUTED_DATA and IMPUTED_DATA_PATH and os.path.exists(IMPUTED_DATA_PATH):
+    _imp_abs = _resolve_repo_path(IMPUTED_DATA_PATH) if IMPUTED_DATA_PATH else ""
+    if USE_IMPUTED_DATA and IMPUTED_DATA_PATH and os.path.isfile(_imp_abs):
         try:
             from utils.imputation_data_provenance import (
                 log_imputed_csv_loaded,
@@ -46,13 +63,13 @@ def load_df_for_analysis(apply_config_drop=True):
             _pre_csv = os.path.join(_root, 'preprocessed_data', 'CHARLS_final_preprocessed.csv')
             _cfg = __import__('config')
             warn_if_imputed_older_than_preprocess(
-                IMPUTED_DATA_PATH,
+                _imp_abs,
                 _pre_csv,
                 imputation_just_succeeded=False,
                 enabled=getattr(_cfg, 'WARN_IMPUTED_OLDER_THAN_PREPROCESSED', True),
                 log=logger,
             )
-            df_clean = pd.read_csv(IMPUTED_DATA_PATH, encoding='utf-8-sig')
+            df_clean = pd.read_csv(_imp_abs, encoding='utf-8-sig')
             if 'age' in df_clean.columns:
                 df_clean = df_clean[df_clean['age'] >= AGE_MIN]
             prepare_exposures(df_clean)
@@ -61,26 +78,56 @@ def load_df_for_analysis(apply_config_drop=True):
                     columns=[c for c in COLS_TO_DROP if c in df_clean.columns], errors='ignore'
                 )
             df_clean = reapply_cohort_definition(df_clean, CESD_CUTOFF, COGNITION_CUTOFF)
-            log_imputed_csv_loaded(IMPUTED_DATA_PATH, log=logger)
-            logger.info("脚本数据: 已加载插补数据 %s, n=%s", IMPUTED_DATA_PATH, len(df_clean))
+            log_imputed_csv_loaded(_imp_abs, log=logger)
+            logger.info("脚本数据: 已加载插补数据 %s, n=%s", _imp_abs, len(df_clean))
         except Exception as ex:
             logger.warning("插补数据加载失败，回退预处理: %s", ex)
             df_clean = None
     if df_clean is None:
-        df_clean = preprocess_charls_data(
-            RAW_DATA_PATH,
-            age_min=AGE_MIN,
-            cesd_cutoff=CESD_CUTOFF,
-            cognition_cutoff=COGNITION_CUTOFF,
-            write_output=False,
-        )
-        if df_clean is not None:
-            prepare_exposures(df_clean)
-            if apply_config_drop:
-                df_clean = df_clean.drop(
-                    columns=[c for c in COLS_TO_DROP if c in df_clean.columns], errors="ignore"
+        raw_abs = _resolve_repo_path(RAW_DATA_PATH)
+        if os.path.isfile(raw_abs):
+            df_clean = preprocess_charls_data(
+                raw_abs,
+                age_min=AGE_MIN,
+                cesd_cutoff=CESD_CUTOFF,
+                cognition_cutoff=COGNITION_CUTOFF,
+                write_output=False,
+            )
+            if df_clean is not None:
+                prepare_exposures(df_clean)
+                if apply_config_drop:
+                    df_clean = df_clean.drop(
+                        columns=[c for c in COLS_TO_DROP if c in df_clean.columns], errors="ignore"
+                    )
+                logger.info("脚本数据: 使用预处理 CHARLS, n=%s", len(df_clean))
+        else:
+            logger.info("原始 CHARLS 不存在 (%s)，跳过 preprocess_charls_data。", raw_abs)
+    if df_clean is None:
+        demo = _bundled_demo_table_path()
+        if demo:
+            try:
+                logger.warning(
+                    "无插补表且无原始 CHARLS：加载仓库演示数据 %s（仅用于 Streamlit / 脱机演示）。",
+                    demo,
                 )
-            logger.info("脚本数据: 使用预处理 CHARLS, n=%s", len(df_clean))
+                df_clean = pd.read_csv(demo, encoding="utf-8-sig")
+                if "age" in df_clean.columns:
+                    df_clean = df_clean[df_clean["age"] >= AGE_MIN]
+                prepare_exposures(df_clean)
+                if apply_config_drop:
+                    df_clean = df_clean.drop(
+                        columns=[c for c in COLS_TO_DROP if c in df_clean.columns],
+                        errors="ignore",
+                    )
+                df_clean = reapply_cohort_definition(df_clean, CESD_CUTOFF, COGNITION_CUTOFF)
+                if df_clean is not None and len(df_clean) > 0:
+                    logger.info("演示数据加载成功, n=%s", len(df_clean))
+                else:
+                    logger.error("演示表经队列定义后为空，请检查 sample_data.csv。")
+                    df_clean = None
+            except Exception as ex:
+                logger.warning("演示表加载失败: %s", ex)
+                df_clean = None
     return df_clean
 
 
@@ -96,8 +143,15 @@ def load_supervised_prediction_df(apply_config_drop=True):
 
     if not USE_IMPUTED_DATA:
         return load_df_for_analysis(apply_config_drop=apply_config_drop)
+    raw_abs = _resolve_repo_path(RAW_DATA_PATH)
+    if not os.path.isfile(raw_abs):
+        logger.info(
+            "CPM 需预处理宽表但原始 CHARLS 不存在 (%s)，回退 load_df_for_analysis（含演示表）。",
+            raw_abs,
+        )
+        return load_df_for_analysis(apply_config_drop=apply_config_drop)
     df_pre = preprocess_charls_data(
-        RAW_DATA_PATH,
+        raw_abs,
         age_min=AGE_MIN,
         cesd_cutoff=CESD_CUTOFF,
         cognition_cutoff=COGNITION_CUTOFF,
