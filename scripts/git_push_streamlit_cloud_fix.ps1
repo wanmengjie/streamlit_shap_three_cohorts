@@ -1,6 +1,6 @@
+# English-only strings in this file (Windows PowerShell 5.x mishandles UTF-8 without BOM).
 # Push charls_script_data_loader.py to GitHub (Streamlit Cloud demo / fallback fixes).
 # Usage: cd to repo root, then: .\scripts\git_push_streamlit_cloud_fix.ps1
-# Use UTF-8 with BOM if you add non-ASCII text; otherwise English-only is safest for Windows PowerShell 5.x.
 
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
