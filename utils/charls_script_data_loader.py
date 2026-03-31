@@ -10,6 +10,28 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+# 仓库内 sample_data.csv 未含、但 CPM 冠军 Pipeline 的 ColumnTransformer 仍要求的列（与 CHARLS 编码一致）。
+_BUNDLED_DEMO_COLUMN_DEFAULTS: dict[str, float] = {
+    "fall_down": 0.0,
+    "pension": 0.0,
+    "ins": 0.0,
+    "retire": 0.0,
+    "disability": 0.0,
+    "adlab_c": 0.0,
+    "iadl": 0.0,
+    # 演示缺列时用常见步速占位，避免单列全 NaN 在部分 sklearn 版本下异常
+    "wspeed": 1.0,
+}
+
+
+def _pad_bundled_demo_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """为云端演示表补齐建模输入列，避免 Preprocessor 报 columns are missing。"""
+    out = df.copy()
+    for col, default in _BUNDLED_DEMO_COLUMN_DEFAULTS.items():
+        if col not in out.columns:
+            out[col] = default
+    return out
+
 
 def _repo_root() -> str:
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -111,6 +133,7 @@ def load_df_for_analysis(apply_config_drop=True):
                     demo,
                 )
                 df_clean = pd.read_csv(demo, encoding="utf-8-sig")
+                df_clean = _pad_bundled_demo_columns(df_clean)
                 if "age" in df_clean.columns:
                     df_clean = df_clean[df_clean["age"] >= AGE_MIN]
                 prepare_exposures(df_clean)
