@@ -1,0 +1,43 @@
+# CHARLS 原始数据（需申请，不纳入仓库）
+CHARLS.csv
+# 大表 / 外部队列数据（勿 push GitHub，避免 >100MB 被拒）
+CHARLS_simple_imputed.csv
+CHARLS_cleaned*.csv
+CLHLS/
+*.sav
+*.dta
+
+# 预处理与结果输出（运行后生成；若需开源示例结果可移除）
+preprocessed_data/
+LIU_JUE_STRATEGIC_SUMMARY/
+Axis_A_Healthy_Prospective/
+Axis_B_Depression_to_Comorbidity/
+Axis_C_Cognition_to_Comorbidity/
+Cohort_A_Healthy_Prospective/
+Cohort_B_Depression_to_Comorbidity/
+Cohort_C_Cognition_to_Comorbidity/
+# 本地可复现快照（含 pip freeze，体积可能较大；需纳入版本库可删除本行）
+runs/repro_snapshots/
+# results/  # 可选：保留 results/ 以展示示例输出
+sensitivity_temp/
+temp_cat_*/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# 日志
+*.log
+
+# Streamlit SHAP 导出（本机预览用，避免误提交）
+streamlit_shap_output/
+streamlit_logs/
+
+# IDE
+.idea/
+.vscode/
+*.swp

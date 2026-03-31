@@ -1,0 +1,40 @@
+================================================================================
+GitHub 推送（需在本机完成，需你登录 GitHub）
+================================================================================
+
+当前状态
+--------
+- 本目录已是独立仓库（.git 在此文件夹内），分支：main
+- 最近一次提交示例：Add Streamlit DCC app for deployment
+- 已跟踪运行 Streamlit 所需的核心代码：streamlit_shap_three_cohorts.py、config.py、
+  requirements.txt、.gitignore、data/、utils/
+
+尚未纳入仓库（Streamlit Cloud 会报错，除非你从别处提供数据）
+------------------------------------------------------------------
+- 三队列 champion_model.joblib（路径见 .gitignore，默认被忽略）
+- imputation_npj_results/.../step1_imputed_full.csv（若 config 使用该路径）
+
+若要云端可跑，请任选其一：
+  A) 修改 .gitignore，允许上述路径后 git add + commit
+  B) 使用 Git LFS：git lfs track "*.joblib" 与大 CSV，再 add/commit
+
+--------------------------------------------------------------------
+第一步：在 github.com 新建空仓库（不要初始化 README 也可）
+--------------------------------------------------------------------
+
+第二步：在本目录 PowerShell 执行（把 URL 换成你的真实仓库地址）
+
+  cd "C:\Users\lenovo\Desktop\因果机器学习"
+  git remote add origin https://github.com/你的GitHub用户名/你的仓库名.git
+  git push -u origin main
+
+若提示登录：用 GitHub 网页生成的 Personal Access Token 代替密码，
+或使用 GitHub Desktop / gh auth login。
+
+--------------------------------------------------------------------
+第三步：Streamlit Cloud
+--------------------------------------------------------------------
+- Main file path: streamlit_shap_three_cohorts.py
+- Requirements: requirements.txt
+
+================================================================================
