@@ -775,21 +775,22 @@ def _clean_shap_columns(df: pd.DataFrame) -> pd.DataFrame:
 def _coerce_float_matrix_for_shap(X: pd.DataFrame) -> pd.DataFrame:
     """
     SHAP / XGBoost expect a strict float matrix. On Streamlit Cloud, pipeline output can
-    occasionally leave object columns or stringified scalars like ``'[1.406E-1]'`` (bracketed
-    scientific notation), which raises ``could not convert string to float``.
+    leave stringified scalars like ``'[1.406E-1]'`` (bracketed scientific notation).
+
+    We always stringify then strip brackets (repeat in case of nested ``[[...]]``) so we
+    never skip cleanup when pandas reports a column as numeric yet cells are still strings.
     """
     if X.empty:
         return X
-    blocks: dict[str, pd.Series] = {}
-    for c in X.columns:
-        ser = X[c]
-        if pd.api.types.is_numeric_dtype(ser.dtype) and not pd.api.types.is_object_dtype(ser.dtype):
-            blocks[c] = pd.to_numeric(ser, errors="coerce")
-        else:
-            s = ser.astype(str).str.strip().str.replace(r"^\[(.*)\]$", r"\1", regex=True)
-            blocks[c] = pd.to_numeric(s, errors="coerce")
-    out = pd.DataFrame(blocks, index=X.index)
-    return out.fillna(0.0).astype(np.float64)
+    n, m = int(X.shape[0]), int(X.shape[1])
+    arr = np.empty((n, m), dtype=np.float64)
+    for j, c in enumerate(X.columns):
+        s = X.iloc[:, j].astype(str).str.strip()
+        for _ in range(4):
+            s = s.str.replace(r"^\[(.*)\]$", r"\1", regex=True)
+        col = pd.to_numeric(s, errors="coerce").to_numpy(dtype=np.float64, copy=False)
+        arr[:, j] = np.nan_to_num(col, nan=0.0, posinf=0.0, neginf=0.0)
+    return pd.DataFrame(arr, columns=list(X.columns), index=X.index)
 
 
 def _float_vec_from_cache(raw) -> np.ndarray:
@@ -818,6 +819,7 @@ def _float_vec_from_cache(raw) -> np.ndarray:
 
 
 def _build_explainer(actual_model, X_bg: pd.DataFrame):
+    X_bg = _coerce_float_matrix_for_shap(X_bg)
     model_str = str(type(actual_model))
     if any(
         m in model_str
